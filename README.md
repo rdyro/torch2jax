@@ -17,7 +17,7 @@ Although I am unsure this functionality could be achieved without C++/CUDA, the
 C++ compilation is efficiently done using PyTorch's portable CUDA & C++
 compilation features, requiring minimal configuration.
 
-*Test and developed with (python==3.9.13, torch==2.0.1 jax==0.4.8)*
+*Tested and developed with (python==3.9.13, torch==2.0.1 jax==0.4.8)*
 
 # Install
 
