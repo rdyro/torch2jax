@@ -81,10 +81,18 @@ x, y, z = jax.jit(jax_fn)(a, b)
 
 ```
 
+# Timing Comparison vs `pure_callback`
+
+This package achieves a much better performance when calling PyTorch code from
+JAX because it does not copy its input arguments and does not move CUDA data off
+the GPU.
+
+<img src="images/time_difference.png">
+
 
 # Current Limitations of `torch2jax`
 
-- compilation happens on module import and can take 1-2 minutes (it should be cached afterwards)
+- compilation happens on module import and can take 1-2 minutes (it will be cached afterwards)
 - in the Pytorch function all arguments must be tensors, all outputs must be tensors
 - all arguments must be on the same device and of the same datatype, either float32 or float64
 - in JAX, the wrapped function always returns a tuple of tensors (possibly a tuple of 1)
@@ -96,6 +104,15 @@ x, y, z = jax.jit(jax_fn)(a, b)
 - the current implementation does not support batching, that's on the roadmap
 - the current implementation does not define the VJP rule, in current design, this has to be done in 
   Python
+
+# Changelog
+
+- version 0.1.1
+  - bug-fix: functions do not get overwritten, manual fn id parameter replaced with automatic id generation
+  - compilation caching is now better
+
+- version 0.1.0
+  - first working version of the package
 
 
 # Roadmap

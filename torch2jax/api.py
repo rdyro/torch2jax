@@ -11,17 +11,18 @@ from jax.abstract_arrays import ShapedArray
 
 from .compile import compile_and_import_module
 from .lowering_rule import _torch_call_lowering
+from .utils import _find_unique_id
 
 
 def torch2jax(
     fn: Callable,
-    id: int = 17,
     example_args: list[Tensor] | tuple[Tensor] = None,
     output_shapes: list[tuple[int]] | tuple[tuple[int]] = None,
     output_shapes_fn: Callable = None,
 ) -> Callable:
     assert example_args is not None or output_shapes is not None or output_shapes_fn is not None
     cpp_module = compile_and_import_module()
+    id = _find_unique_id()
 
     torch_prim = core.Primitive(f"torch_call_{id}")
     torch_prim.multiple_results = True
@@ -64,11 +65,11 @@ def torch2jax(
         )
 
     def torch_call_fn_():
-        args = getattr(torch, f"_torch_call_args_{id:d}")
+        args = getattr(torch, f"_torch2jax_args_{id:d}")
         out = fn(*args)
         return (out,) if isinstance(out, Tensor) else tuple(out)
 
-    setattr(torch, f"_torch_call_fn_{id:d}", torch_call_fn_)
+    setattr(torch, f"_torch2jax_fn_{id:d}", torch_call_fn_)
 
     def wrapped_fn(*args):
         dtype = args[-1].dtype
