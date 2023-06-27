@@ -21,7 +21,7 @@ DEVICE_MAP = {"gpu": "cuda", "cpu": "cpu", "cuda": "cuda"}
 
 
 def test_dlpack_transfer():
-    device_list = ["cpu", "cuda"]
+    device_list = ["cpu", "cuda"] if torch.cuda.is_available() else ["cpu"]
     shape = (2, 3, 5, 1)
     for device in device_list:
         for dtype in [torch.float32, torch.float64]:
@@ -44,38 +44,39 @@ def test_dlpack_transfer():
 
 
 def test_tree_dlpack_transfer():
+    device = "cuda" if torch.cuda.is_available() else "cpu"
     args = dict(
         a=1,
-        b=jax_randn((10, 2), dtype=jnp.float32, device="cuda"),
+        b=jax_randn((10, 2), dtype=jnp.float32, device=device),
         c="hello",
         d=(
             1,
-            jax_randn((10, 2), dtype=jnp.float32, device="cuda"),
-            torch.randn((10, 2), device="cuda"),
+            jax_randn((10, 2), dtype=jnp.float32, device=device),
+            torch.randn((10, 2), device=device),
         ),
     )
     args2 = tree_j2t(args)
     assert isinstance(args2["a"], int)
-    assert DEVICE_MAP[args2["b"].device.type] == "cuda"
+    assert DEVICE_MAP[args2["b"].device.type] == device
     assert isinstance(args2["c"], str)
     assert isinstance(args2["d"][1], Tensor)
-    assert DEVICE_MAP[args2["d"][1].device.type] == "cuda"
+    assert DEVICE_MAP[args2["d"][1].device.type] == device
     assert isinstance(args2["d"][2], Tensor)
 
     args = dict(
         a=1,
-        b=torch.randn((10, 2), device="cuda"),
+        b=torch.randn((10, 2), device=device),
         c="hello",
         d=(
             1,
-            torch.randn((10, 2), device="cuda"),
-            jax_randn((10, 2), dtype=jnp.float32, device="cuda"),
+            torch.randn((10, 2), device=device),
+            jax_randn((10, 2), dtype=jnp.float32, device=device),
         ),
     )
     args2 = tree_t2j(args)
     assert isinstance(args2["a"], int)
-    assert DEVICE_MAP[args2["b"].device().platform] == "cuda"
+    assert DEVICE_MAP[args2["b"].device().platform] == device
     assert isinstance(args2["c"], str)
     assert isinstance(args2["d"][1], Array)
-    assert DEVICE_MAP[args2["d"][1].device().platform] == "cuda"
+    assert DEVICE_MAP[args2["d"][1].device().platform] == device
     assert isinstance(args2["d"][2], Array)

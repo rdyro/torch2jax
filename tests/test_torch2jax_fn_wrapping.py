@@ -26,7 +26,7 @@ def test_single_output_fn():
         return (x + 1 - y.reshape(x.shape)) / torch.norm(y)
 
     jax_fn = torch2jax(torch_fn, output_shapes=[shape])
-    device_list = ["cpu", "cuda"]
+    device_list = ["cpu", "cuda"] if torch.cuda.is_available() else ["cpu"]
     dtype_list = [jnp.float32, jnp.float64]
 
     for device in device_list:
@@ -70,7 +70,7 @@ def test_multi_output_fn():
         return a, b 
 
     jax_fn = torch2jax(torch_fn, output_shapes=[shape, (5,)])
-    device_list = ["cpu", "cuda"]
+    device_list = ["cpu", "cuda"] if torch.cuda.is_available() else ["cpu"]
     dtype_list = [jnp.float32, jnp.float64]
 
     for device in device_list:

@@ -107,6 +107,10 @@ the GPU.
 
 # Changelog
 
+- version 0.1.2
+  - full CPU only version support, selected via `torch.cuda.is_available()`
+  - bug-fix: compilation should now cache properly
+
 - version 0.1.1
   - bug-fix: functions do not get overwritten, manual fn id parameter replaced with automatic id generation
   - compilation caching is now better
@@ -120,7 +124,7 @@ the GPU.
 - [x] call PyTorch functions on JAX data without input data copy
 - [x] call PyTorch functions on JAX data without input data copy under jit
 - [x] support both GPU and CPU
-- [ ] (feature) support partial CPU building on systems without CUDA
+- [x] (feature) support partial CPU building on systems without CUDA
 - [ ] (user-friendly) support functions with a single output (return a single output, not a tuple)
 - [ ] (user-friendly) support arbitrary argument input and output strucutre (use pytrees on the 
       Python side)

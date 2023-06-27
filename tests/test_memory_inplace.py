@@ -25,8 +25,9 @@ def test_inplace_memory():
         x[:5].add_(17.0)
         return y
 
+    device_list = ["cpu", "cuda"] if torch.cuda.is_available() else ["cpu"]
 
-    for device in ["cpu", "cuda"]:
+    for device in device_list:
         for dtype in [jnp.float32, jnp.float64]:
             x = jax_randn((50,), device=device, dtype=dtype) * 0
             jax_fn = torch2jax(torch_fn, output_shapes=[x.shape])

@@ -25,7 +25,7 @@ def test_single_output_fn():
     def torch_fn(x, y):
         return (x + 1 - y.reshape(x.shape)) / torch.norm(y)
 
-    device_list = ["cpu", "cuda"]
+    device_list = ["cpu", "cuda"] if torch.cuda.is_available() else ["cpu"]
     dtype_list = [jnp.float32, jnp.float64]
 
     for device in device_list:
@@ -77,7 +77,7 @@ def test_multi_output_fn():
         b = (x - y.reshape(x.shape)).reshape(-1)[:5]
         return a, b
 
-    device_list = ["cpu", "cuda"]
+    device_list = ["cpu", "cuda"] if torch.cuda.is_available() else ["cpu"]
     dtype_list = [jnp.float32, jnp.float64]
 
     for device in device_list:
