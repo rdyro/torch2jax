@@ -24,11 +24,11 @@ jobs:
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
-        python -m pip install ruff pytest "jax[cpu]" torch
+        python -m pip install ruff ninja pytest "jax[cpu]" torch
         if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
-    - name: Lint with flake8
+    - name: Lint with ruff
       run: |
         ruff check --line-length=100 .
-    - name: Test with pytest
+    - name: Test with pytest and generate coverage 
       run: |
-        pytest
+        pytest --cov-report xml:coverage.xml
