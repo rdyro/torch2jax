@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <stdexcept>
 #include <string>
+#include <vector>
 #include <type_traits>
 #include <stdio.h>
 
@@ -18,28 +19,23 @@ namespace py = pybind11;
 
 ////////////////////////////////////////////////////////////////////////////////
 
-#define MAX_DIMS 7
-#define MAX_NARGIN 20
-#define MAX_NARGOUT 20
-#define MAX_ID_LEN 256
-
-struct Shape {
-  int64_t ndim;
-  int64_t shape[MAX_DIMS];
-};
-
 struct TorchCallDevice {
   torch::DeviceType type;
   int64_t index;
 };
 
-struct TorchCallDescriptor {
-  char id[MAX_ID_LEN];
+struct DynamicShape {
+  int64_t ndim;
+  vector<int64_t> shape;
+};
+
+struct DynamicTorchCallDescriptor {
+  string id;
   TorchCallDevice device;
   int64_t nargin;
   int64_t nargout;
-  Shape shapes_in[MAX_NARGIN];
-  Shape shapes_out[MAX_NARGOUT];
+  vector<DynamicShape> shapes_in;
+  vector<DynamicShape> shapes_out;
 };
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -80,37 +76,6 @@ string tolower(string& s);
 
 ////////////////////////////////////////////////////////////////////////////////
 
-/// @brief Convert a custom descriptor struct to a string of bytes
-/// @tparam T
-/// @param descriptor The descriptor struct
-/// @return string of bytes representation of the descriptor
-template <typename T>
-string packDescriptorAsString(const T& descriptor) {
-  return string(bit_cast<const char*>(&descriptor), sizeof(T));
-}
-
-/// @brief Convert a bytes object to a custom descriptor type
-/// @tparam T
-/// @param opaque bytes representation of the descriptor
-/// @param opaque_len length of the bytes object
-/// @return
-template <typename T>
-const T* unpackDescriptor(const char* opaque, size_t opaque_len) {
-  if (opaque_len != sizeof(T)) {
-    throw runtime_error("Invalid opaque object size");
-  }
-  return bit_cast<const T*>(opaque);
-}
-
-/// @brief Packs a custom descriptor types as Python bytes
-/// @tparam T
-/// @param descriptor The descriptor struct
-/// @return Python bytes object
-template <typename T>
-py::bytes packDescriptor(const T& descriptor) {
-  return py::bytes(packDescriptorAsString(descriptor));
-}
-
 /// @brief Converts a C++ function to a PyCapsule
 /// @return PyCapsule of the function
 template <typename T>
@@ -127,7 +92,7 @@ py::capsule encapsulateFunction(T* fn) {
 /// @param d The Torch call descriptor, contains input & output shapes and
 /// device and call id
 template <typename T>
-void apply_torch_call(void **buffers, const TorchCallDescriptor &d) {
+void apply_torch_call(void **buffers, const DynamicTorchCallDescriptor &d) {
   /* ---------------------------------------------------------------------------
   The general strategy for the torch call is as follows:
     1. wrap the input buffers as Torch tensors
@@ -144,7 +109,7 @@ void apply_torch_call(void **buffers, const TorchCallDescriptor &d) {
 
   // 1. wrap the input buffers as Torch tensors
   for (int64_t i = 0; i < nargin; i++) {
-    auto size = torch::IntArrayRef((int64_t *)d.shapes_in[i].shape,
+    auto size = torch::IntArrayRef((int64_t *)d.shapes_in[i].shape.data(),
                                    (size_t)d.shapes_in[i].ndim);
     T *buf = reinterpret_cast<T *>(buffers[i]);
     auto options = tensor_options(buf, d.device);
@@ -162,7 +127,7 @@ void apply_torch_call(void **buffers, const TorchCallDescriptor &d) {
   // 4. unwrap the output tensors and copy them to the output buffers
   assert(results.size() == nargout);
   for (int64_t i = 0; i < nargout; i++) {
-    auto size = torch::IntArrayRef((int64_t *)d.shapes_out[i].shape,
+    auto size = torch::IntArrayRef((int64_t *)d.shapes_out[i].shape.data(),
                                    (size_t)d.shapes_out[i].ndim);
     T *buf = reinterpret_cast<T *>(buffers[nargin + i]);
     auto options = tensor_options(buf, d.device);
@@ -188,6 +153,17 @@ py::bytes build_torch_call_descriptor(int64_t id, string &device_str,
                                       vector<vector<int64_t>> &shape_in,
                                       vector<vector<int64_t>> &shape_out);
 
+DynamicTorchCallDescriptor deserialize_gpu_descriptor(const char *opaque,
+                                                      size_t opaque_len);
+
+py::bytes serialize_gpu_descriptor(int64_t id, int64_t device_index,
+                                   vector<vector<int64_t>> &shape_in,
+                                   vector<vector<int64_t>> &shape_out);
+
+DynamicTorchCallDescriptor deserialize_cpu_descriptor(const void ***in_ptr);
+vector<int64_t> serialize_cpu_descriptor(int64_t id,
+                                   vector<vector<int64_t>> &shape_in,
+                                   vector<vector<int64_t>> &shape_out);
 
 ////////////////////////////////////////////////////////////////////////////////
 

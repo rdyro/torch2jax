@@ -5,7 +5,7 @@
 
 PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
   m.def("cpu_registrations", &CPURegistrations);
-  m.def("build_torch_call_descriptor", &build_torch_call_descriptor);
+  m.def("serialize_cpu_descriptor", &serialize_cpu_descriptor);
 }
 
 #endif

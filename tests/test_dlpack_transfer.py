@@ -4,7 +4,7 @@ from pathlib import Path
 import torch
 from torch import Tensor
 from jax import numpy as jnp
-from jax import Array
+from jax import Array, jit
 import numpy as np
 
 
@@ -23,24 +23,26 @@ DEVICE_MAP = {"gpu": "cuda", "cpu": "cpu", "cuda": "cuda"}
 def test_dlpack_transfer():
     device_list = ["cpu", "cuda"] if torch.cuda.is_available() else ["cpu"]
     shape = (2, 3, 5, 1)
+    via_list = ["cpu", "dlpack"]
     for device in device_list:
         for dtype in [torch.float32, torch.float64]:
-            # jax -> torch
-            x1 = jax_randn(shape, device, DTYPE_MAP[dtype])
-            x2 = j2t(x1)
-            assert DEVICE_MAP[x2.device.type] == DEVICE_MAP[device] and x2.dtype == dtype
-            err = np.linalg.norm(x2.cpu().numpy() - np.array(x1)) / np.linalg.norm(np.array(x1))
-            assert err < 1e-5
+            for via in via_list:
+                # jax -> torch
+                x1 = jax_randn(shape, device, DTYPE_MAP[dtype])
+                x2 = j2t(x1, via=via)
+                assert DEVICE_MAP[x2.device.type] == DEVICE_MAP[device] and x2.dtype == dtype
+                err = np.linalg.norm(x2.cpu().numpy() - np.array(x1)) / np.linalg.norm(np.array(x1))
+                assert err < 1e-5
 
-            # torch -> jax
-            x1 = torch.randn(shape, device=device, dtype=dtype)
-            x2 = t2j(x1)
-            assert (
-                DEVICE_MAP[x2.device().platform] == DEVICE_MAP[device]
-                and x2.dtype == DTYPE_MAP[dtype]
-            )
-            err = np.linalg.norm(x1.cpu().numpy() - np.array(x2)) / np.linalg.norm(x1.cpu().numpy())
-            assert err < 1e-5
+                # torch -> jax
+                x1 = torch.randn(shape, device=device, dtype=dtype)
+                x2 = t2j(x1, via=via)
+                assert (
+                    DEVICE_MAP[x2.device().platform] == DEVICE_MAP[device]
+                    and x2.dtype == DTYPE_MAP[dtype]
+                )
+                err = np.linalg.norm(x1.cpu().numpy() - np.array(x2)) / np.linalg.norm(x1.cpu().numpy())
+                assert err < 1e-5
 
 
 def test_tree_dlpack_transfer():
@@ -80,3 +82,18 @@ def test_tree_dlpack_transfer():
     assert isinstance(args2["d"][1], Array)
     assert DEVICE_MAP[args2["d"][1].device().platform] == device
     assert isinstance(args2["d"][2], Array)
+
+
+def test_runtime_error():
+    x = jax_randn((10, 2), dtype=jnp.float32, device="cpu")
+
+    @jit
+    def fn(x):
+        x2 = j2t(x)
+        return x * 2
+
+    try:
+        fn(x)
+        assert False
+    except RuntimeError:
+        assert True

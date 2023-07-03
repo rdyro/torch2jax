@@ -4,10 +4,7 @@ from types import ModuleType
 import torch
 import numpy as np
 from jaxlib.hlo_helpers import custom_call
-from jax.interpreters import mlir, xla
-
-from .utils import _shapes_to_ir_constants
-
+from jax.interpreters import mlir
 
 def _torch_call_lowering(
     ctx, *args, cpp_module: ModuleType = None, platform: str = None, id: int = 17
@@ -25,14 +22,8 @@ def _torch_call_lowering(
     out_shapes = [list(x.shape) for x in ctx.avals_out]
     in_layouts = [tuple(range(len(shape) - 1, -1, -1)) for shape in in_shapes]
     out_layouts = [tuple(range(len(shape) - 1, -1, -1)) for shape in out_shapes]
-    device_idx = device.index if device.index is not None else 0
-    opaque = cpp_module.build_torch_call_descriptor(
-        id, device.type, device_idx, in_shapes, out_shapes
-    )
     if platform == "cpu":
-        shape_desc = _shapes_to_ir_constants(in_shapes, out_shapes)
-        id_desc = [np.int64(id)]
-        desc = shape_desc + id_desc
+        desc = cpp_module.serialize_cpu_descriptor(id, in_shapes, out_shapes)
         ret = custom_call(
             op_name,
             out_types=out_types,
@@ -41,6 +32,10 @@ def _torch_call_lowering(
             result_layouts=out_layouts,
         )
     elif platform == "gpu":
+        device_idx = device.index if device.index is not None else 0
+        opaque = cpp_module.serialize_gpu_descriptor(
+            int(id), int(device_idx), in_shapes, out_shapes
+        )
         ret = custom_call(
             op_name,
             out_types=out_types,

@@ -18,14 +18,20 @@ def compile_and_import_module(force_recompile: bool = False) -> ModuleType:
     build_dir = Path("~/.cache/torch2jax").expanduser().absolute()
     if force_recompile:
         rmtree(build_dir)
-    build_dir.mkdir(exist_ok=True)
+    build_dir.mkdir(exist_ok=True, parents=True)
 
     if str(build_dir) not in sys.path:
         sys.path.append(str(build_dir))
     try:
+        if force_recompile:
+            try:
+                import torch2jax_cpp as mod
+                assert False, "Cache not empty, but we are forcing recompilation"
+            except ImportError:
+                pass
         import torch2jax_cpp as mod
     except ImportError:
-        print("Loading failed")
+        print("Cache empty, we will compile the C++ extension component now...")
         source_prefix = Path(__file__).parent.absolute() / "cpp"
         source_list = ["main.cpp", "cpu_impl.cpp", "utils.cpp"]
         extra_cflags = ["-O3"]
