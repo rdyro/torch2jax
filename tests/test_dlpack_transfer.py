@@ -13,8 +13,8 @@ for path in paths:
     if str(path) not in sys.path:
         sys.path.append(str(path))
 
-from utils import jax_randn
-from torch2jax import j2t, t2j, tree_j2t, tree_t2j
+from utils import jax_randn  # noqa: E402
+from torch2jax import j2t, t2j, tree_j2t, tree_t2j  # noqa: E402
 
 DTYPE_MAP = {torch.float32: jnp.float32, torch.float64: jnp.float64}
 DEVICE_MAP = {"gpu": "cuda", "cpu": "cpu", "cuda": "cuda"}
@@ -41,7 +41,9 @@ def test_dlpack_transfer():
                     DEVICE_MAP[x2.device().platform] == DEVICE_MAP[device]
                     and x2.dtype == DTYPE_MAP[dtype]
                 )
-                err = np.linalg.norm(x1.cpu().numpy() - np.array(x2)) / np.linalg.norm(x1.cpu().numpy())
+                err = np.linalg.norm(x1.cpu().numpy() - np.array(x2)) / np.linalg.norm(
+                    x1.cpu().numpy()
+                )
                 assert err < 1e-5
 
 
@@ -90,6 +92,7 @@ def test_runtime_error():
     @jit
     def fn(x):
         x2 = j2t(x)
+        x2 = 2 * x2
         return x * 2
 
     try:

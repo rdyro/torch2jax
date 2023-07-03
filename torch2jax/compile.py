@@ -29,7 +29,7 @@ def compile_and_import_module(force_recompile: bool = False) -> ModuleType:
                 assert False, "Cache not empty, but we are forcing recompilation"
             except ImportError:
                 pass
-        import torch2jax_cpp as mod
+        import torch2jax_cpp as mod # noqa: F811
     except ImportError:
         print("Cache empty, we will compile the C++ extension component now...")
         source_prefix = Path(__file__).parent.absolute() / "cpp"

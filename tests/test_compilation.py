@@ -8,12 +8,13 @@ root_path = Path(__file__).parents[1]
 if str(root_path) not in sys.path:
     sys.path.append(str(root_path))
 
-from torch2jax import torch2jax, compile_and_import_module
+from torch2jax import compile_and_import_module  # noqa: E402
 
 
 def _test_compilation():
     cpp_module = compile_and_import_module()
     assert cpp_module is not None
+
 
 def _test_forced_compilation():
     cpp_module = compile_and_import_module(force_recompile=True)

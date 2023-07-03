@@ -2,11 +2,10 @@ import sys
 from pathlib import Path
 
 import torch
-from torch import Tensor, Size
+from torch import Size
 import jax
 from jax import numpy as jnp
 from jax import Array
-import numpy as np
 
 
 paths = [Path(__file__).absolute().parents[1], Path(__file__).absolute().parent]
@@ -14,11 +13,9 @@ for path in paths:
     if str(path) not in sys.path:
         sys.path.append(str(path))
 
-from utils import jax_randn
-from pure_callback_alternative import wrap_torch_fn
-from torch2jax import torch2jax
-from torch2jax.compat import torch2jax as torch2jax_v1
-from torch2jax.dlpack_passing import j2t, tree_j2t
+from utils import jax_randn  # noqa: E402
+from torch2jax import torch2jax  # noqa: E402
+from torch2jax.compat import torch2jax as torch2jax_v1  # noqa: E402
 
 ####################################################################################################
 
@@ -65,7 +62,7 @@ def test_single_output_fn_v1():
             assert err < 1e-5
 
 
-def test_multi_output_fn():
+def test_multi_output_fn_v1():
     shape = (10, 2)
 
     def torch_fn(x, y):

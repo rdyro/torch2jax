@@ -11,9 +11,9 @@ import matplotlib.pyplot as plt
 
 sys.path.append(str(Path(__file__).parents[1].absolute() / "tests"))
 
-from pure_callback_alternative import wrap_torch_fn
-from utils import jax_randn
-from torch2jax import torch2jax, j2t
+from pure_callback_alternative import wrap_torch_fn  # noqa: E402
+from utils import jax_randn  # noqa: E402
+from torch2jax import torch2jax, j2t  # noqa: E402
 
 
 def torch_fn(a, b):

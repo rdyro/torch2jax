@@ -8,7 +8,7 @@ from torch import Tensor
 from jax.interpreters import mlir, xla
 from jax import core, ShapeDtypeStruct
 from jax.abstract_arrays import ShapedArray
-from jax.tree_util import tree_flatten, tree_unflatten, tree_structure, tree_map
+from jax.tree_util import tree_flatten, tree_unflatten, tree_structure, PyTreeDef
 
 from .compile import compile_and_import_module
 from .lowering_rule import _torch_call_lowering
@@ -90,8 +90,8 @@ def torch2jax(
     *example_args: Any,
     example_kw: Any | None = None,
     example_kwargs: Any | None = None,
-    output_shapes: "NestedShapeContainer" = None,
-    input_struct: "NestedContainer" | None = None,
+    output_shapes: Any = None,
+    input_struct: PyTreeDef | None = None,
 ) -> Callable:
     # check for presence of example_args and example_kw
     msg = "Please provide either example_kw or example_kwargs, not both."
