@@ -146,3 +146,19 @@ the GPU.
 - [ ] (feature) support defining VJP for the wrapped function (import the experimental functionality 
       from [jit-JAXFriendlyInterface](https://github.com/rdyro/jfi-JAXFriendlyInterface))
 - [ ] (feature) support TPU
+
+# Coverage
+
+```
+Name                          Stmts   Miss  Cover
+-------------------------------------------------
+torch2jax/__init__.py             5      0   100%
+torch2jax/api.py                 84      0   100%
+torch2jax/compat.py               1      0   100%
+torch2jax/compile.py             43      1    98%
+torch2jax/dlpack_passing.py      39      2    95%
+torch2jax/lowering_rule.py       26      1    96%
+torch2jax/utils.py                7      0   100%
+-------------------------------------------------
+TOTAL                           205      4    98%
+```

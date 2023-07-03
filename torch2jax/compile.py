@@ -1,4 +1,5 @@
 import sys
+import os
 from shutil import rmtree
 from pathlib import Path
 from types import ModuleType
@@ -16,8 +17,11 @@ def compile_and_import_module(force_recompile: bool = False) -> ModuleType:
         return CPP_MODULE_CACHED
 
     build_dir = Path("~/.cache/torch2jax").expanduser().absolute()
-    if force_recompile:
-        rmtree(build_dir)
+    if force_recompile and build_dir.exists():
+        if build_dir.is_dir():
+            rmtree(build_dir)
+        else:
+            os.remove(build_dir)
     build_dir.mkdir(exist_ok=True, parents=True)
 
     if str(build_dir) not in sys.path:
@@ -26,10 +30,11 @@ def compile_and_import_module(force_recompile: bool = False) -> ModuleType:
         if force_recompile:
             try:
                 import torch2jax_cpp as mod
+
                 assert False, "Cache not empty, but we are forcing recompilation"
             except ImportError:
                 pass
-        import torch2jax_cpp as mod # noqa: F811
+        import torch2jax_cpp as mod  # noqa: F811
     except ImportError:
         print("Cache empty, we will compile the C++ extension component now...")
         source_prefix = Path(__file__).parent.absolute() / "cpp"
