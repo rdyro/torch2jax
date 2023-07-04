@@ -100,3 +100,9 @@ def test_runtime_error():
         assert False
     except RuntimeError:
         assert True
+
+
+if __name__ == "__main__":
+    test_dlpack_transfer()
+    test_tree_dlpack_transfer()
+    test_runtime_error()

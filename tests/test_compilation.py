@@ -48,3 +48,7 @@ def test_ordered():
     _test_forced_compilation()
     _test_compilation()
     _test_compilation_caching()
+
+
+if __name__ == "__main__":
+    test_ordered()

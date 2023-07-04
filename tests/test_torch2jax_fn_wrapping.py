@@ -202,3 +202,11 @@ def test_multi_output_fn():
             err1 = jnp.linalg.norm(out1[0] - expected1) / jnp.linalg.norm(expected2)
             err2 = jnp.linalg.norm(out1[1] - expected2) / jnp.linalg.norm(expected2)
             assert err1 < 1e-5 and err2 < 1e-5
+
+####################################################################################################
+
+if __name__ == "__main__":
+    test_single_output_fn_v1()
+    test_multi_output_fn_v1()
+    test_single_output_fn()
+    test_multi_output_fn()

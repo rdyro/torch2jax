@@ -65,3 +65,4 @@ def test_memory_inplace():
 
 if __name__ == "__main__":
     test_memory_inplace()
+    test_memory_inplace_v1()
