@@ -84,6 +84,56 @@ x, y, z = jax.jit(jax_fn)(a, b)
 
 ```
 
+# (beta): Usage for automatically defining gradients
+
+Automatic reverse-mode gradient definitions are now supported for wrapped
+pytorch functions with the new method `torch2jax_with_vjp`. The feature is currently experimental.
+
+```python
+import torch
+import jax
+from jax import numpy as jnp
+import numpy as np
+
+from torch2jax import torch2jax_with_vjp
+
+def torch_fn(a, b):
+  return torch.nn.MSELoss()(a, b)
+
+shape = (6,)
+
+xt, yt = torch.randn(shape), torch.randn(shape)
+
+# `depth` determines how many times the function can be differentiated
+jax_fn = torch2jax_with_vjp(torch_fn, xt, yt, depth=2) 
+
+
+# we can now differentiate the function (derivatives are taken using PyTorch autodiff)
+g_fn = jax.grad(jax_fn, argnums=(0, 1))
+x, y = jnp.array(np.random.randn(*shape)), jnp.array(np.random.randn(*shape))
+
+print(g_fn(x, y))
+
+# JIT works too
+print(jax.jit(g_fn)(x, y))
+
+```
+
+Caveats: 
+
+- `jax.hessian(f)` will not work since it uses forward differentiation, but
+  the same functionality can be achieved using `jax.jacobian(jax.jacobian(f))`
+- the automatic gradient definition currently relies on evaluating the PyTorch
+  function to get output shapes:
+  - valid example arguments as PyTorch tensors must be provided
+  - input shapes are fixed for one wrapped function and cannot change, use
+  `torch2jax_with_vjp` again if you need to alter the input shapes
+- in line with JAX philosphy, PyTorch functions must be non-mutable,
+  [torch.func](https://pytorch.org/docs/master/func.html) has a good description
+  of how to convert e.g., PyTorch models, to non-mutable formulation
+
+
+
 # Timing Comparison vs `pure_callback`
 
 This package achieves a much better performance when calling PyTorch code from
@@ -106,6 +156,11 @@ the GPU.
   Python
 
 # Changelog
+
+- version 0.3.0
+  - added a beta-version of a new wrapping method `torch2jax_with_vjp` which
+  allows recursively defining reverse-mode gradients for the wrapped torch
+  function that works in JAX both normally and under JIT
 
 - version 0.2.0
   - arbitrary input and output structure is now allowed
@@ -143,7 +198,7 @@ the GPU.
 - [ ] (feature) support integer input/output types
 - [ ] (feature) support mixed-precision arguments in inputs/outputs
 - [ ] (feature) look into supporting in-place functions (support for output without copy)
-- [ ] (feature) support defining VJP for the wrapped function (import the experimental functionality 
+- [x] (feature) support defining VJP for the wrapped function (import the experimental functionality 
       from [jit-JAXFriendlyInterface](https://github.com/rdyro/jfi-JAXFriendlyInterface))
 - [ ] (feature) support TPU
 
