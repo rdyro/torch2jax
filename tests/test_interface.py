@@ -33,6 +33,7 @@ def test_single_output_fn_v1():
         for dtype in dtype_list:
             #for method in ["output_shapes", "output_shapes_fn", "example_args"]:
             for method in ["output_shapes", "example_args"]:
+                print(f"dtype = {dtype}, device = {device}, method = {method}")
                 if method == "output_shapes":
                     jax_fn = torch2jax_v1(torch_fn, output_shapes=[shape])
                 #elif method == "output_shapes_fn":

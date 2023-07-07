@@ -4,45 +4,30 @@ from typing import Callable, Any
 from functools import partial
 
 import torch
-from torch import Tensor
+from torch import Tensor, Size
 import jax
 from jax import numpy as jnp
 from jax.interpreters import mlir, xla, batching
 from jax import core, ShapeDtypeStruct
-from jax.abstract_arrays import ShapedArray
+
+# from jax.abstract_arrays import ShapedArray
+from jax.core import ShapedArray
 from jax.tree_util import tree_flatten, tree_unflatten, tree_structure, PyTreeDef, tree_map
 
 from .compile import compile_and_import_module
 from .lowering_rule import _torch_call_lowering
-from .utils import _find_unique_id
-
-
-def torch_dtype_translation(dtype: torch.dtype) -> jnp.dtype:
-    return {
-        torch.float32: jnp.float32,
-        torch.float: jnp.float32,
-        torch.float64: jnp.float64,
-        torch.float16: jnp.float16,
-        torch.uint8: jnp.uint8,
-        torch.int8: jnp.int8,
-        torch.int16: jnp.int16,
-        torch.short: jnp.int16,
-        torch.int32: jnp.int32,
-        torch.int: jnp.int32,
-        torch.int64: jnp.int64,
-        torch.long: jnp.int64,
-        torch.bool: bool,
-    }[dtype]
+from .utils import find_unique_id, dtype_t2j, normalize_shapes
 
 
 def torch2jax_v1(
     fn: Callable,
     example_args: list[Tensor] | tuple[Tensor] = None,
     output_shapes: list[tuple[int]] | tuple[tuple[int]] = None,
+    use_torch_vmap: bool = True,
 ) -> Callable:
     # assert example_args is not None or output_shapes is not None or output_shapes_fn is not None
     cpp_module = compile_and_import_module()
-    id = _find_unique_id()
+    id = find_unique_id()
 
     torch_prim = core.Primitive(f"torch_call_{id}")
     torch_prim.multiple_results = True
@@ -52,24 +37,19 @@ def torch2jax_v1(
     if output_shapes is not None:
         # call the pytorch function to infer shapes
         assert isinstance(output_shapes, (tuple, list)) and all(
-            isinstance(shape, (tuple, list, ShapedArray, ShapeDtypeStruct))
+            isinstance(shape, (tuple, list, ShapedArray, ShapeDtypeStruct, Size))
+            or shape is None
+            or hasattr(shape, "shape")
             for shape in output_shapes
         )
 
         def _torch_call_abstract(*args):
-            dtype = args[0].dtype
-            # assert all(arg.dtype == dtype for arg in args)
-            return tuple(
-                ShapedArray(shape, dtype)
-                if not isinstance(shape, (ShapeDtypeStruct, ShapedArray))
-                else ShapedArray(
-                    shape.shape,
-                    shape.dtype
-                    if not isinstance(shape.dtype, torch.dtype)
-                    else torch_dtype_translation(shape.dtype),
-                )
+            output_shapes_ = [
+                Size(shape) if isinstance(shape, (list, tuple)) else shape
                 for shape in output_shapes
-            )
+            ]
+            print(normalize_shapes(output_shapes_, args))
+            return normalize_shapes(output_shapes_, args)
 
     else:
         out = fn(*example_args)
@@ -77,13 +57,7 @@ def torch2jax_v1(
         out = (out,) if isinstance(out, Tensor) else tuple(out)
 
         def _torch_call_abstract(*args):
-            return tuple(
-                ShapedArray(
-                    z.shape,
-                    z.dtype if not isinstance(z, Tensor) else torch_dtype_translation(z.dtype),
-                )
-                for z in out
-            )
+            return tree_map(lambda x: ShapedArray(x.shape, dtype_t2j(x.dtype)), out)
 
     torch_prim.def_abstract_eval(_torch_call_abstract)
     # inferring shapes #############################################################################
@@ -108,39 +82,45 @@ def torch2jax_v1(
         return torch_prim.bind(*args)
 
     def torch_call_batching(args, axes):
-        def torch_fn_vmap(*args):
-            return torch.vmap(fn, in_dims=axes)(*args)
+        if use_torch_vmap:
 
-        assert any(ax is not None for ax in axes)
-        batch_size = [arg.shape[ax] for arg, ax in zip(args, axes) if ax is not None][0]
-        assert output_shapes is not None
-        output_shapes_ = _torch_call_abstract(*args)
-        output_shapes_vmap = [
-            ShapedArray((batch_size,) + tuple(shape.shape), shape.dtype) for shape in output_shapes_
-        ]
-        outaxes = (0 for _ in output_shapes_vmap)
-        return torch2jax_v1(torch_fn_vmap, args, output_shapes=output_shapes_vmap)(*args), outaxes
+            def torch_fn_vmap(*args):
+                return torch.vmap(fn, in_dims=axes)(*args)
 
-        # assert all(axis is None or axis == 0 for axis in axes)
-        # if all(axis is None for axis in axes):
-        #   return wrapped_fn(*args)
-        # n = 0
-        # for i, axis in enumerate(axes):
-        #   if axis is not None:
-        #       n = args[i].shape[axis]
-        #       break
-        # output_lists, output_struct = None, None
-        # for i in range(n):
-        #   args_ = [arg if axis is None else arg[i] for arg, axis in zip(args, axes)]
-        #   outputs = wrapped_fn(*args_)
-        #   output_flat, output_struct = tree_flatten(outputs)
-        #   if output_lists is None:
-        #       output_lists = [[] for _ in output_flat]
-        #   for output_list, output in zip(output_lists, output_flat):
-        #       output_list.append(output)
-        # outputs = tuple([jnp.stack(output_list, 0) for output_list in output_lists])
-        # outputs = tree_unflatten(output_struct, outputs)
-        # return outputs, tree_unflatten(output_struct, (0 for _ in outputs))
+            assert any(ax is not None for ax in axes)
+            batch_size = [arg.shape[ax] for arg, ax in zip(args, axes) if ax is not None][0]
+            assert output_shapes is not None
+            output_shapes_ = _torch_call_abstract(*args)
+            output_shapes_vmap = [
+                ShapedArray((batch_size,) + tuple(shape.shape), shape.dtype)
+                for shape in output_shapes_
+            ]
+            outaxes = (0 for _ in output_shapes_vmap)
+            return (
+                torch2jax_v1(torch_fn_vmap, args, output_shapes=output_shapes_vmap)(*args),
+                outaxes,
+            )
+        else:
+            assert all(axis is None or axis == 0 for axis in axes)
+            if all(axis is None for axis in axes):
+                return wrapped_fn(*args)
+            n = 0
+            for i, axis in enumerate(axes):
+                if axis is not None:
+                    n = args[i].shape[axis]
+                    break
+            output_lists, output_struct = None, None
+            for i in range(n):
+                args_ = [arg if axis is None else arg[i] for arg, axis in zip(args, axes)]
+                outputs = wrapped_fn(*args_)
+                output_flat, output_struct = tree_flatten(outputs)
+                if output_lists is None:
+                    output_lists = [[] for _ in output_flat]
+                for output_list, output in zip(output_lists, output_flat):
+                    output_list.append(output)
+            outputs = tuple([jnp.stack(output_list, 0) for output_list in output_lists])
+            outputs = tree_unflatten(output_struct, outputs)
+            return outputs, tree_unflatten(output_struct, (0 for _ in outputs))
 
     batching.primitive_batchers[torch_prim] = torch_call_batching
 
@@ -177,13 +157,14 @@ def torch2jax(
         output_shapes = [torch.Size(x.shape) for x in output_flat]
     else:
         output_shapes, output_struct = tree_flatten(output_shapes)
-        msg = "Please provide all shapes as torch.Size or jax.ShapeDtypeStruct (dtype is ignored)."
+        msg = "Please provide all shapes as torch.Size or jax.ShapeDtypeStruct."
         assert all(
-            isinstance(x, (torch.Size, ShapedArray, ShapeDtypeStruct)) for x in output_shapes
+            isinstance(x, (torch.Size, ShapedArray, ShapeDtypeStruct)) or hasattr(x, "shape")
+            for x in output_shapes
         ), msg
-        output_shapes = [
-            x if isinstance(x, torch.Size) else torch.Size(x.shape) for x in output_shapes
-        ]
+        # output_shapes = [
+        #    x if isinstance(x, torch.Size) else torch.Size(x.shape) for x in output_shapes
+        # ]
 
     def flat_fn(*args_flat):
         if has_kw:

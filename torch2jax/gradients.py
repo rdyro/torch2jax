@@ -5,35 +5,30 @@ from typing import Callable, Any
 import torch
 from torch import Size, Tensor
 import jax
-from jax import Array, numpy as jnp
+from jax import Array, numpy as jnp, ShapeDtypeStruct
 from jax.tree_util import tree_map, tree_flatten, tree_structure, tree_unflatten
 
 from .api import torch2jax
-
-
-def _is_floating_point(x: Tensor | Array) -> bool:
-    return x.dtype in (
-        torch.float16,
-        torch.float32,
-        torch.float64,
-        jnp.float16,
-        jnp.float32,
-        jnp.float64,
-    )
+from .utils import _is_floating_point, dtype_t2j, dtype_j2t, normalize_shapes
 
 
 ####################################################################################################
+
 
 def torch2jax_with_vjp(
     torch_fn: Callable,
     *example_args,
     depth: int = 1,
     nondiff_argnums: list | tuple | None = None,
-    # has_aux: bool = False,
+    output_shapes: Any | None = None,
+    # has_aux: bool = False, # not currently supported
 ) -> Callable:
-    outputs = torch_fn(*example_args)
-    output_shape = tree_map(lambda x: Size(x.shape), outputs)
-    fn = torch2jax(torch_fn, *example_args, output_shapes=output_shape)
+    if output_shapes is None:
+        outputs = torch_fn(*example_args)
+        output_shapes = tree_map(
+            lambda x: ShapeDtypeStruct(dtype=dtype_t2j(x.dtype), shape=x.shape), outputs
+        )
+    fn = torch2jax(torch_fn, *example_args, output_shapes=output_shapes)
 
     if depth <= 0:
         return fn
@@ -81,7 +76,23 @@ def torch2jax_with_vjp(
         raise NotImplementedError("JVP is not implemented yet.")
         bwd_fn = create_custom_jvp(bwd_fn_torch, args, outputs, dtype=dtype, device=device, depth=1)
     else:
-        bwd_fn = torch2jax_with_vjp(bwd_fn_torch, example_args, outputs, depth=depth - 1)
+        # bwd_fn = torch2jax_with_vjp(bwd_fn_torch, example_args, outputs, depth=depth - 1)
+        example_outputs = normalize_shapes(output_shapes, example_args)
+        args_flat, args_struct = tree_flatten(example_args)
+        next_output_shapes = tree_unflatten(
+            args_struct,
+            [
+                ShapeDtypeStruct(dtype=dtype_t2j(x.dtype), shape=x.shape) if not m else None
+                for (x, m) in zip(args_flat, nondiff_mask_flat)
+            ],
+        )
+        bwd_fn = torch2jax_with_vjp(
+            bwd_fn_torch,
+            example_args,
+            example_outputs,
+            output_shapes=next_output_shapes,
+            depth=depth - 1,
+        )
         fn.defvjp(fwd_fn, bwd_fn)
 
     return fn

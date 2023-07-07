@@ -6,7 +6,7 @@ import jax
 from jax import numpy as jnp
 import torch
 from torch import Tensor
-from jax import ShapedArray
+from jax.core import ShapedArray
 
 
 def wrap_torch_fn(

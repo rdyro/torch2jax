@@ -6,13 +6,15 @@ from pathlib import Path
 import torch
 import jax
 from jax import numpy as jnp, Array
+from jax.nn import softmax
+from jax.tree_util import tree_flatten
 
 paths = [Path(__file__).absolute().parents[1], Path(__file__).absolute().parent]
 for path in paths:
     if str(path) not in sys.path:
         sys.path.append(str(path))
 
-from torch2jax import torch2jax_with_vjp  # noqa: E402
+from torch2jax import torch2jax_with_vjp, tree_t2j, tree_j2t  # noqa: E402
 from utils import jax_randn  # noqa: E402
 
 ####################################################################################################
@@ -91,5 +93,82 @@ def test_torch2jax_with_vjp():
             assert err_h < 1e-5, f"Error in h value is {err_h:.4e}"
 
 
+def test_jacobian():
+    shape = (10, 2)
+
+    def fn(a, b):
+        return torch.sin(a + 2 * b) * torch.softmax(a - b, dim=0).reshape(-1)[0]
+
+    def jax_fn(a, b):
+        return jnp.sin(a + 2 * b) * softmax(a - b, axis=0).reshape(-1)[0]
+
+    device_list = ["cuda", "cpu"] if torch.cuda.is_available() else ["cpu"]
+    dtype_list = [jnp.float32, jnp.float64]
+    for device in device_list:
+        for dtype in dtype_list:
+            for argnums in [(0,), (1,), (0, 1)]:
+                a = jax_randn(shape, dtype=dtype, device=device)
+                b = jax_randn(shape, dtype=dtype, device=device)
+                fn_jax = torch2jax_with_vjp(fn, *tree_j2t((a, b)), depth=2)
+
+                # no jit
+                J = jax.jacobian(fn_jax, argnums=argnums)(a, b)
+                J_expected = jax.jacobian(jax_fn, argnums=argnums)(a, b)
+                J_flat, J_expected_flat = tree_flatten(J)[0], tree_flatten(J_expected)[0]
+                err = sum(
+                    jnp.linalg.norm(J_flat[i] - J_expected_flat[i]) for i in range(len(J_flat))
+                )
+                assert err < 1e-5
+
+                # with jit
+                J = jax.jit(jax.jacobian(fn_jax, argnums=argnums))(a, b)
+                J_expected = jax.jit(jax.jacobian(jax_fn, argnums=argnums))(a, b)
+                J_flat, J_expected_flat = tree_flatten(J)[0], tree_flatten(J_expected)[0]
+                err = sum(
+                    jnp.linalg.norm(J_flat[i] - J_expected_flat[i]) for i in range(len(J_flat))
+                )
+                assert err < 1e-5
+
+def test_hessian():
+    shape = (10, 2)
+
+    def fn(a, b):
+        return torch.sin(a + 2 * b) * torch.softmax(a - b, dim=0).reshape(-1)[0]
+
+    def jax_fn(a, b):
+        return jnp.sin(a + 2 * b) * softmax(a - b, axis=0).reshape(-1)[0]
+
+    device_list = ["cuda", "cpu"] if torch.cuda.is_available() else ["cpu"]
+    dtype_list = [jnp.float32, jnp.float64]
+    for device in device_list:
+        for dtype in dtype_list:
+            for argnums in [(0,), (1,), (0, 1)]:
+                a = jax_randn(shape, dtype=dtype, device=device)
+                b = jax_randn(shape, dtype=dtype, device=device)
+                fn_jax = torch2jax_with_vjp(fn, *tree_j2t((a, b)), depth=2)
+
+                # no jit
+                H = jax.jacobian(jax.jacobian(fn_jax, argnums=argnums))(a, b)
+                H_expected = jax.jacobian(jax.jacobian(jax_fn, argnums=argnums))(a, b)
+                H_flat, H_expected_flat = tree_flatten(H)[0], tree_flatten(H_expected)[0]
+                err = sum(
+                    jnp.linalg.norm(H_flat[i] - H_expected_flat[i]) for i in range(len(H_flat))
+                )
+                assert err < 1e-5
+
+                # with jit
+                H = jax.jit(jax.jacobian(jax.jacobian(fn_jax, argnums=argnums)))(a, b)
+                H_expected = jax.jit(jax.jacobian(jax.jacobian(jax_fn, argnums=argnums)))(a, b)
+                H_flat, H_expected_flat = tree_flatten(H)[0], tree_flatten(H_expected)[0]
+                err = sum(
+                    jnp.linalg.norm(H_flat[i] - H_expected_flat[i]) for i in range(len(H_flat))
+                )
+                assert err < 1e-5
+
+
+
+
 if __name__ == "__main__":
     test_torch2jax_with_vjp()
+    test_jacobian()
+    test_hessian()
