@@ -40,6 +40,16 @@ def test_gradient():
     a, b, c = tree_t2j((a, b, c))
     print(jax.grad(lambda *args: jnp.sum(fn_jax(*args)), argnums=(0, 1))(a, b, c))
 
+    def fn(a, c, b):
+        return a + 2 * b
+
+    a, b = torch.randn(10), torch.randn(10)
+    c = torch.randint(0, 100, size=(10,))
+
+    fn_jax = torch2jax_with_vjp(fn, a, c, b, nondiff_argnums=(1,), depth=2)
+    a, b, c = tree_t2j((a, b, c))
+    print(jax.grad(lambda *args: jnp.sum(fn_jax(*args)), argnums=(0, 2))(a, c, b))
+
 
 def test_jacobian():
     def fn(a, b, c):
@@ -53,9 +63,25 @@ def test_jacobian():
     print(jax.jacobian(fn_jax)(a, b, c))
     print()
     print(jax.jacobian(fn_jax, argnums=(0, 1))(a, b, c))
+    print(jax.jacobian(fn_jax, argnums=0)(a, b, c))
+
+def test_hessian():
+    def fn(a, b, c):
+        return a + 2 * b
+
+    a, b = torch.randn(10), torch.randn(10)
+    c = torch.randint(0, 100, size=(10,))
+
+    fn_jax = torch2jax_with_vjp(fn, a, b, c, nondiff_argnums=(2,), depth=2)
+    a, b, c = tree_t2j((a, b, c))
+    print(jax.jacobian(jax.jacobian(fn_jax))(a, b, c))
 
 
 if __name__ == "__main__":
-    #test_int_args()
-    #test_gradient()
+    test_int_args()
+    print("#" * 80)
+    test_gradient()
+    print("#" * 80)
     test_jacobian()
+    print("#" * 80)
+    #test_hessian()

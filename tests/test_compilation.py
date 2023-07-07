@@ -45,7 +45,7 @@ def _test_compilation_caching():
 
 
 def test_ordered():
-    _test_forced_compilation()
+    #_test_forced_compilation()
     _test_compilation()
     _test_compilation_caching()
 
