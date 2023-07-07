@@ -1,0 +1,7 @@
+---
+Language:        Cpp
+# The column limit.
+ColumnLimit:     80
+# Break before braces: always the same line.
+BreakBeforeBraces: Attach
+...

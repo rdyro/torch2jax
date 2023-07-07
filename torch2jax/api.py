@@ -5,7 +5,9 @@ from functools import partial
 
 import torch
 from torch import Tensor
-from jax.interpreters import mlir, xla
+import jax
+from jax import numpy as jnp
+from jax.interpreters import mlir, xla, batching
 from jax import core, ShapeDtypeStruct
 from jax.abstract_arrays import ShapedArray
 from jax.tree_util import tree_flatten, tree_unflatten, tree_structure, PyTreeDef
@@ -37,14 +39,14 @@ def torch2jax_v1(
         )
 
         def _torch_call_abstract(*args):
-            dtype = args[-1].dtype
-            assert all(arg.dtype == dtype for arg in args)
+            dtype = args[0].dtype
+            #assert all(arg.dtype == dtype for arg in args)
             return tuple(ShapedArray(shape, dtype) for shape in output_shapes)
 
     elif output_shapes_fn is not None:
 
         def _torch_call_abstract(*args):
-            dtype = args[-1].dtype
+            dtype = args[0].dtype
             assert all(arg.dtype == dtype for arg in args)
             return tuple(ShapedArray(shape, dtype) for shape in output_shapes_fn(*args))
 
@@ -54,7 +56,7 @@ def torch2jax_v1(
         out = (out,) if isinstance(out, Tensor) else tuple(out)
 
         def _torch_call_abstract(*args):
-            dtype = args[-1].dtype
+            dtype = args[0].dtype
             assert all(arg.dtype == dtype for arg in args)
             return tuple(ShapedArray(z.shape, dtype) for z in out)
 
@@ -78,11 +80,38 @@ def torch2jax_v1(
     setattr(torch, f"_torch2jax_fn_{id:d}", torch_call_fn_)
 
     def wrapped_fn(*args):
-        dtype = args[-1].dtype
-        assert all(arg.dtype == dtype for arg in args)
+        #dtype = args[-1].dtype
+        #assert all(arg.dtype == dtype for arg in args)
         return torch_prim.bind(*args)
 
+    def torch_call_batching(args, axes):
+        assert all(axis is None or axis == 0 for axis in axes)
+        if all(axis is None for axis in axes):
+            return wrapped_fn(*args)
+        n = 0
+        for i, axis in enumerate(axes):
+            if axis is not None:
+                n = args[i].shape[axis]
+                break
+        output_lists, output_struct = None, None
+        for i in range(n):
+            args_ = [arg if axis is None else arg[i] for arg, axis in zip(args, axes)]
+            outputs = wrapped_fn(*args_)
+            output_flat, output_struct = tree_flatten(outputs)
+            if output_lists is None:
+                output_lists = [[] for _ in output_flat]
+            for output_list, output in zip(output_lists, output_flat):
+                output_list.append(output)
+        outputs = tuple([jnp.stack(output_list, 0) for output_list in output_lists])
+        outputs = tree_unflatten(output_struct, outputs)
+        return outputs, tree_unflatten(output_struct, (0 for _ in outputs))
+
+
+    batching.primitive_batchers[torch_prim] = torch_call_batching
+
     return wrapped_fn
+
+####################################################################################################
 
 
 def torch2jax(

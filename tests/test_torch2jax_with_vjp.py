@@ -89,3 +89,7 @@ def test_torch2jax_with_vjp():
             assert err_f < 1e-5, f"Error in f value is {err_f:.4e}"
             assert err_g < 1e-5, f"Error in g value is {err_g:.4e}"
             assert err_h < 1e-5, f"Error in h value is {err_h:.4e}"
+
+
+if __name__ == "__main__":
+    test_torch2jax_with_vjp()
