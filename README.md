@@ -84,10 +84,10 @@ x, y, z = jax.jit(jax_fn)(a, b)
 
 ```
 
-# (beta): Usage for automatically defining gradients
+# Automatically defining gradients
 
 Automatic reverse-mode gradient definitions are now supported for wrapped
-pytorch functions with the new method `torch2jax_with_vjp`. The feature is currently experimental.
+pytorch functions with the method `torch2jax_with_vjp`
 
 ```python
 import torch
@@ -121,17 +121,13 @@ print(jax.jit(g_fn)(x, y))
 
 Caveats: 
 
-- `jax.hessian(f)` will not work since it uses forward differentiation, but
+- `jax.hessian(f)` will not work since `torch2jax` uses forward differentiation, but
   the same functionality can be achieved using `jax.jacobian(jax.jacobian(f))`
-- the automatic gradient definition currently relies on evaluating the PyTorch
-  function to get output shapes:
-  - valid example arguments as PyTorch tensors must be provided
-  - input shapes are fixed for one wrapped function and cannot change, use
-  `torch2jax_with_vjp` again if you need to alter the input shapes
+- input shapes are fixed for one wrapped function and cannot change, use
+  `torch2jax_with_vjp/torch2jax` again if you need to alter the input shapes
 - in line with JAX philosphy, PyTorch functions must be non-mutable,
   [torch.func](https://pytorch.org/docs/master/func.html) has a good description
   of how to convert e.g., PyTorch models, to non-mutable formulation
-
 
 
 # Timing Comparison vs `pure_callback`
@@ -156,6 +152,13 @@ the GPU.
   Python
 
 # Changelog
+
+- version 0.4.0
+  - added batching (vmap support) using `torch.vmap`, this makes `jax.jacobian` work
+  - robustified support for gradients
+  - added mixed type arguments, including support for float16, float32, float64 and integer types
+  - removed unnecessary torch function calls in defining gradients
+  - added an example of wrapping a BERT model in JAX (with weights modified from JAX), `examples/bert_from_jax.ipynb`
 
 - version 0.3.0
   - added a beta-version of a new wrapping method `torch2jax_with_vjp` which
@@ -188,32 +191,12 @@ the GPU.
 - [x] (user-friendly) support functions with a single output (return a single output, not a tuple)
 - [x] (user-friendly) support arbitrary argument input and output structure (use pytrees on the 
       Python side)
-- [ ] (user-friendly) add many, many more assertions throughout the Python code for sanity when 
-      debugging
-- [ ] (feature) check tensors are contiguous (the method implemented here requires contiguous JAX 
-      tensors, but I do not how to check that under JIT)
-- [ ] (tests) test how well device mapping works on multiple GPUs
-- [ ] (tests) setup automatic tests for multiple versions of Python, PyTorch and JAX
-- [ ] (feature) support batching (e.g., support for `jax.vmap`)
-- [ ] (feature) support integer input/output types
-- [ ] (feature) support mixed-precision arguments in inputs/outputs
-- [ ] (feature) look into supporting in-place functions (support for output without copy)
+- [x] (feature) support batching (e.g., support for `jax.vmap`)
+- [x] (feature) support integer input/output types
+- [x] (feature) support mixed-precision arguments in inputs/outputs
 - [x] (feature) support defining VJP for the wrapped function (import the experimental functionality 
       from [jit-JAXFriendlyInterface](https://github.com/rdyro/jfi-JAXFriendlyInterface))
+- [ ] (tests) test how well device mapping works on multiple GPUs
+- [ ] (tests) setup automatic tests for multiple versions of Python, PyTorch and JAX
+- [ ] (feature) look into supporting in-place functions (support for output without copy)
 - [ ] (feature) support TPU
-
-# Coverage
-
-```
-Name                          Stmts   Miss  Cover
--------------------------------------------------
-torch2jax/__init__.py             5      0   100%
-torch2jax/api.py                 84      0   100%
-torch2jax/compat.py               1      0   100%
-torch2jax/compile.py             43      1    98%
-torch2jax/dlpack_passing.py      39      2    95%
-torch2jax/lowering_rule.py       26      1    96%
-torch2jax/utils.py                7      0   100%
--------------------------------------------------
-TOTAL                           205      4    98%
-```

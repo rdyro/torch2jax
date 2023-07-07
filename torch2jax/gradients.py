@@ -3,13 +3,12 @@ from __future__ import annotations
 from typing import Callable, Any
 
 import torch
-from torch import Size, Tensor
 import jax
-from jax import Array, numpy as jnp, ShapeDtypeStruct
-from jax.tree_util import tree_map, tree_flatten, tree_structure, tree_unflatten
+from jax import ShapeDtypeStruct
+from jax.tree_util import tree_map, tree_flatten, tree_unflatten
 
 from .api import torch2jax
-from .utils import _is_floating_point, dtype_t2j, dtype_j2t, normalize_shapes
+from .utils import _is_floating_point, dtype_t2j, normalize_shapes
 
 
 ####################################################################################################
@@ -24,7 +23,8 @@ def torch2jax_with_vjp(
     # has_aux: bool = False, # not currently supported
 ) -> Callable:
     if output_shapes is None:
-        outputs = torch_fn(*example_args)
+        with torch.no_grad():
+            outputs = torch_fn(*example_args)
         output_shapes = tree_map(
             lambda x: ShapeDtypeStruct(dtype=dtype_t2j(x.dtype), shape=x.shape), outputs
         )

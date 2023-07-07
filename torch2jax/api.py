@@ -48,11 +48,11 @@ def torch2jax_v1(
                 Size(shape) if isinstance(shape, (list, tuple)) else shape
                 for shape in output_shapes
             ]
-            print(normalize_shapes(output_shapes_, args))
             return normalize_shapes(output_shapes_, args)
 
     else:
-        out = fn(*example_args)
+        with torch.no_grad():
+            out = fn(*example_args)
         assert isinstance(out, (tuple, list, Tensor))
         out = (out,) if isinstance(out, Tensor) else tuple(out)
 
@@ -151,10 +151,12 @@ def torch2jax(
         else:
             input_struct = tree_structure(example_args)
 
+
     if output_shapes is None:
-        output = fn(*example_args, **example_kw) if has_kw else fn(*example_args)
+        with torch.no_grad():
+            output = fn(*example_args, **example_kw) if has_kw else fn(*example_args)
         output_flat, output_struct = tree_flatten(output)
-        output_shapes = [torch.Size(x.shape) for x in output_flat]
+        output_shapes = [ShapeDtypeStruct(x.shape, dtype_t2j(x.dtype)) for x in output_flat]
     else:
         output_shapes, output_struct = tree_flatten(output_shapes)
         msg = "Please provide all shapes as torch.Size or jax.ShapeDtypeStruct."
@@ -162,9 +164,7 @@ def torch2jax(
             isinstance(x, (torch.Size, ShapedArray, ShapeDtypeStruct)) or hasattr(x, "shape")
             for x in output_shapes
         ), msg
-        # output_shapes = [
-        #    x if isinstance(x, torch.Size) else torch.Size(x.shape) for x in output_shapes
-        # ]
+
 
     def flat_fn(*args_flat):
         if has_kw:
