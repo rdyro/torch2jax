@@ -8,7 +8,7 @@ from jax import ShapeDtypeStruct
 from jax.tree_util import tree_map, tree_flatten, tree_unflatten
 
 from .api import torch2jax
-from .utils import _is_floating_point, dtype_t2j, normalize_shapes
+from .utils import _is_floating_point, dtype_t2j, normalize_shapes, dtype_j2t
 
 
 ####################################################################################################
@@ -21,6 +21,7 @@ def torch2jax_with_vjp(
     nondiff_argnums: list | tuple | None = None,
     output_shapes: Any | None = None,
     # has_aux: bool = False, # not currently supported
+    use_zeros: bool = True,
 ) -> Callable:
     if output_shapes is None:
         with torch.no_grad():
@@ -46,15 +47,16 @@ def torch2jax_with_vjp(
     else:
         nondiff_mask_flat = [not _is_floating_point(arg) for i, arg in enumerate(args_flat)]
 
+    args_flat, args_struct = tree_flatten(example_args)
+
     def bwd_fn_torch(args, gs):
+        nonlocal output_shapes
         if all(not m for m in nondiff_mask_flat):
             _, vjp_fn = torch.func.vjp(
                 torch_fn,
                 *args,
             )
             return vjp_fn(gs)
-
-        args_flat, args_struct = tree_flatten(args)
 
         def torch_fn_(*diff_args_flat):
             all_args_flat, diff_args_flat = [], list(diff_args_flat)
@@ -68,31 +70,29 @@ def torch2jax_with_vjp(
         gs_flat = tree_flatten(gs)[0]
         diff_vjp_vals_flat = list(vjp_fn(gs_flat))
         vjp_vals_flat = []
-        for m in nondiff_mask_flat:
-            vjp_vals_flat.append(None if m else diff_vjp_vals_flat.pop(0))
+        for arg, m in zip(args_flat, nondiff_mask_flat):
+            val = None if not use_zeros else torch.zeros_like(arg)
+            vjp_vals_flat.append(val if m else diff_vjp_vals_flat.pop(0))
         return tree_unflatten(args_struct, vjp_vals_flat)
 
-    if False:  # create_jvp:
-        raise NotImplementedError("JVP is not implemented yet.")
-        bwd_fn = create_custom_jvp(bwd_fn_torch, args, outputs, dtype=dtype, device=device, depth=1)
-    else:
-        # bwd_fn = torch2jax_with_vjp(bwd_fn_torch, example_args, outputs, depth=depth - 1)
-        example_outputs = normalize_shapes(output_shapes, example_args)
-        args_flat, args_struct = tree_flatten(example_args)
-        next_output_shapes = tree_unflatten(
-            args_struct,
-            [
-                ShapeDtypeStruct(dtype=dtype_t2j(x.dtype), shape=x.shape) if not m else None
-                for (x, m) in zip(args_flat, nondiff_mask_flat)
-            ],
-        )
-        bwd_fn = torch2jax_with_vjp(
-            bwd_fn_torch,
-            example_args,
-            example_outputs,
-            output_shapes=next_output_shapes,
-            depth=depth - 1,
-        )
-        fn.defvjp(fwd_fn, bwd_fn)
+    # bwd_fn = torch2jax_with_vjp(bwd_fn_torch, example_args, outputs, depth=depth - 1)
+    example_outputs = normalize_shapes(output_shapes, example_args)
+    next_output_shapes = tree_unflatten(
+        args_struct,
+        [
+            ShapeDtypeStruct(dtype=dtype_t2j(x.dtype), shape=x.shape)
+            if (not m or use_zeros)
+            else None
+            for (x, m) in zip(args_flat, nondiff_mask_flat)
+        ],
+    )
+    bwd_fn = torch2jax_with_vjp(
+        bwd_fn_torch,
+        example_args,
+        example_outputs,
+        output_shapes=next_output_shapes,
+        depth=depth - 1,
+    )
+    fn.defvjp(fwd_fn, bwd_fn)
 
     return fn

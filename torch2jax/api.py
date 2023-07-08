@@ -151,12 +151,13 @@ def torch2jax(
         else:
             input_struct = tree_structure(example_args)
 
-
     if output_shapes is None:
         with torch.no_grad():
             output = fn(*example_args, **example_kw) if has_kw else fn(*example_args)
-        output_flat, output_struct = tree_flatten(output)
-        output_shapes = [ShapeDtypeStruct(x.shape, dtype_t2j(x.dtype)) for x in output_flat]
+        output_shapes, output_struct = tree_flatten(
+            tree_map(lambda x: ShapeDtypeStruct(x.shape, dtype_t2j(x.dtype)), output)
+        )
+
     else:
         output_shapes, output_struct = tree_flatten(output_shapes)
         msg = "Please provide all shapes as torch.Size or jax.ShapeDtypeStruct."
@@ -165,8 +166,8 @@ def torch2jax(
             for x in output_shapes
         ), msg
 
-
     def flat_fn(*args_flat):
+        nonlocal output_shapes, example_args
         if has_kw:
             args, kw = tree_unflatten(input_struct, args_flat)
             ret = fn(*args, **kw)
