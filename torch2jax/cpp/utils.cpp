@@ -147,7 +147,7 @@ void apply_torch_call(void **buffers, const DynamicTorchCallDescriptor &d) {
   const int64_t nargin = d.nargin;
   const int64_t nargout = d.nargout;
 
-  py::gil_scoped_acquire release;
+  py::gil_scoped_acquire acquire;
   py::list my_list;
 
   // 1. wrap the input buffers as Torch tensors
@@ -168,6 +168,8 @@ void apply_torch_call(void **buffers, const DynamicTorchCallDescriptor &d) {
   py::tuple results =
       mod.attr((string("_torch2jax_fn_") + string(d.id)).c_str())();
 
+  //py::gil_scoped_release release;
+  
   // 4. unwrap the output tensors and copy them to the output buffers
   assert(results.size() == nargout);
   for (int64_t i = 0; i < nargout; i++) {

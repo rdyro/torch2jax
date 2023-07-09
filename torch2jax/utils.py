@@ -7,8 +7,8 @@ from typing import Any
 from types import ModuleType
 
 import torch
-from torch import Tensor, Size
-from jax import numpy as jnp, Array, ShapeDtypeStruct
+from torch import Tensor
+from jax import numpy as jnp, Array
 from jax.core import ShapedArray
 from jax.tree_util import tree_flatten, tree_map
 

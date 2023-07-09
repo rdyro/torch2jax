@@ -5,7 +5,6 @@ from functools import partial
 
 import torch
 from torch import Tensor, Size
-import jax
 from jax import numpy as jnp
 from jax.interpreters import mlir, xla, batching
 from jax import core, ShapeDtypeStruct

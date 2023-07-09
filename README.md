@@ -153,6 +153,9 @@ the GPU.
 
 # Changelog
 
+- version 0.4.1
+  - bug-fix: in `torch2jax_with_vjp`, nondiff arguments were erroneously memorized
+
 - version 0.4.0
   - added batching (vmap support) using `torch.vmap`, this makes `jax.jacobian` work
   - robustified support for gradients
