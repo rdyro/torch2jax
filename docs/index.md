@@ -1,6 +1,6 @@
-# torch2jax
+# Welcome to `torch2jax`
 
-<img src="images/torch2jax_logo2.png" style="max-width:800px;width:70%;display:block;margin-left:auto;margin-right:auto"/>
+<img src="img/torch2jax_logo2.png" style="max-width:800px;width:70%;display:block;margin-left:auto;margin-right:auto"/>
 <br />
 
 This package is designed to facilitate no-copy PyTorch calling from JAX under
@@ -139,7 +139,7 @@ This package achieves a much better performance when calling PyTorch code from
 JAX because it does not copy its input arguments and does not move CUDA data off
 the GPU.
 
-<img src="images/time_difference.png">
+<img src="img/time_difference.png">
 
 
 # Current Limitations of `torch2jax`
@@ -153,56 +153,3 @@ the GPU.
 - the current implementation does not support batching, that's on the roadmap
 - the current implementation does not define the VJP rule, in current design, this has to be done in 
   Python
-
-# Changelog
-
-- version 0.4.1
-  - bug-fix: in `torch2jax_with_vjp`, nondiff arguments were erroneously memorized
-
-- version 0.4.0
-  - added batching (vmap support) using `torch.vmap`, this makes `jax.jacobian` work
-  - robustified support for gradients
-  - added mixed type arguments, including support for float16, float32, float64 and integer types
-  - removed unnecessary torch function calls in defining gradients
-  - added an example of wrapping a BERT model in JAX (with weights modified from JAX), `examples/bert_from_jax.ipynb`
-
-- version 0.3.0
-  - added a beta-version of a new wrapping method `torch2jax_with_vjp` which
-  allows recursively defining reverse-mode gradients for the wrapped torch
-  function that works in JAX both normally and under JIT
-
-- version 0.2.0
-  - arbitrary input and output structure is now allowed
-  - removed the restriction on the number of arguments or their maximum dimension
-  - old interface is available via `torch2jax.compat.torch2jax`
-
-- version 0.1.2
-  - full CPU only version support, selected via `torch.cuda.is_available()`
-  - bug-fix: compilation should now cache properly
-
-- version 0.1.1
-  - bug-fix: functions do not get overwritten, manual fn id parameter replaced with automatic id generation
-  - compilation caching is now better
-
-- version 0.1.0
-  - first working version of the package
-
-
-# Roadmap
-
-- [x] call PyTorch functions on JAX data without input data copy
-- [x] call PyTorch functions on JAX data without input data copy under jit
-- [x] support both GPU and CPU
-- [x] (feature) support partial CPU building on systems without CUDA
-- [x] (user-friendly) support functions with a single output (return a single output, not a tuple)
-- [x] (user-friendly) support arbitrary argument input and output structure (use pytrees on the 
-      Python side)
-- [x] (feature) support batching (e.g., support for `jax.vmap`)
-- [x] (feature) support integer input/output types
-- [x] (feature) support mixed-precision arguments in inputs/outputs
-- [x] (feature) support defining VJP for the wrapped function (import the experimental functionality 
-      from [jit-JAXFriendlyInterface](https://github.com/rdyro/jfi-JAXFriendlyInterface))
-- [ ] (tests) test how well device mapping works on multiple GPUs
-- [ ] (tests) setup automatic tests for multiple versions of Python, PyTorch and JAX
-- [ ] (feature) look into supporting in-place functions (support for output without copy)
-- [ ] (feature) support TPU

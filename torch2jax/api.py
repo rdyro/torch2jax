@@ -18,12 +18,27 @@ from .lowering_rule import _torch_call_lowering
 from .utils import find_unique_id, dtype_t2j, normalize_shapes
 
 
-def torch2jax_v1(
+def torch2jax_flat(
     fn: Callable,
     example_args: list[Tensor] | tuple[Tensor] = None,
     output_shapes: list[tuple[int]] | tuple[tuple[int]] = None,
     use_torch_vmap: bool = True,
 ) -> Callable:
+    """Define a jit-compatible JAX function that calls a PyTorch function. Flat
+    arguments and outputs.
+
+    Args:
+        fn (Callable): PyTorch function.
+        example_args (list[Tensor] | tuple[Tensor], optional): Example arguments. Defaults to None.
+        output_shapes (list[tuple[int]] | tuple[tuple[int]], optional): Output shapes (or shapes 
+                                                                        with dtype).  Defaults to 
+                                                                        None.
+        use_torch_vmap (bool, optional): Whether to use torch.vmap for jax batching rule. 
+                                         Alternatively use a dumb for loop. Defaults to True.
+
+    Returns:
+        Callable: Wrapped jit-compatible jax function.
+    """
     # assert example_args is not None or output_shapes is not None or output_shapes_fn is not None
     cpp_module = compile_and_import_module()
     id = find_unique_id()
@@ -96,7 +111,7 @@ def torch2jax_v1(
             ]
             outaxes = (0 for _ in output_shapes_vmap)
             return (
-                torch2jax_v1(torch_fn_vmap, args, output_shapes=output_shapes_vmap)(*args),
+                torch2jax_flat(torch_fn_vmap, args, output_shapes=output_shapes_vmap)(*args),
                 outaxes,
             )
         else:
@@ -137,6 +152,35 @@ def torch2jax(
     output_shapes: Any = None,
     input_struct: PyTreeDef | None = None,
 ) -> Callable:
+    """Define a jit-compatible JAX function that calls a PyTorch function.  Arbitrary nesting of 
+    arguments and outputs is supported.
+
+    Args:
+        fn (Callable): PyTorch function to wrap.
+        example_kw (Any | None, optional): Example keyword arguments. Defaults to None.
+        example_kwargs (Any | None, optional): Example keyword arguments. Defaults to None.
+        output_shapes (Any, optional): Output shapes or shapes + dtype struct. Defaults to None.
+        input_struct (PyTreeDef | None, optional): Input structure, which can be inferred from 
+                                                   example arguments and keywords. Defaults to None.
+
+    Returns:
+        Callable: Jit-compatible JAX function.
+
+    Examples:
+        >>> import torch, jax 
+        >>> from torch2jax import torch2jax_with_vjp, tree_t2j
+        >>> # let's define the torch function and create some example arguments
+        >>> torch_fn = lambda x, y: torch.nn.CrossEntropyLoss()(x, y)
+        >>> xt, yt = torch.randn(10, 5), torch.randint(0, 5, (10,))
+        >>> # we can not convert the function to jax using the torch fn and example args
+        >>> jax_fn = torch2jax_with_vjp(torch_fn, xt, yt)
+        >>> jax_fn = jax.jit(jax_fn) # we can jit it too
+        >>> # let's convert the arguments to JAX arrays and call the function
+        >>> x, y = tree_t2j((xt, yt))
+        >>> jax_fn(x, y)
+        >>> # it works!
+    """
+
     # check for presence of example_args and example_kw
     msg = "Please provide either example_kw or example_kwargs, not both."
     assert example_kw is None or example_kwargs is None, msg
@@ -165,6 +209,7 @@ def torch2jax(
             for x in output_shapes
         ), msg
 
+    # define flattened version of the function (flat arguments and outputs)
     def flat_fn(*args_flat):
         nonlocal output_shapes, example_args
         if has_kw:
@@ -175,18 +220,19 @@ def torch2jax(
             ret = fn(*args)
         return tree_flatten(ret)[0]
 
-    wrapped_fn_v1 = torch2jax_v1(flat_fn, output_shapes=output_shapes)
+    # define the wrapped function using flat interface 
+    wrapped_fn_flat = torch2jax_flat(flat_fn, output_shapes=output_shapes)
 
     if has_kw:
 
         def wrapped_fn(*args, **kw):
-            ret = wrapped_fn_v1(*tree_flatten((args, kw))[0])
+            ret = wrapped_fn_flat(*tree_flatten((args, kw))[0])
             return tree_unflatten(output_struct, ret)
 
     else:
 
         def wrapped_fn(*args):
-            ret = wrapped_fn_v1(*tree_flatten(args)[0])
+            ret = wrapped_fn_flat(*tree_flatten(args)[0])
             return tree_unflatten(output_struct, ret)
 
     return wrapped_fn

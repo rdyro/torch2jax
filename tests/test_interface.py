@@ -14,13 +14,13 @@ for path in paths:
 
 from utils import jax_randn  # noqa: E402
 from torch2jax import torch2jax, Size  # noqa: E402
-from torch2jax.compat import torch2jax as torch2jax_v1  # noqa: E402
+from torch2jax.compat import torch2jax as torch2jax_flat  # noqa: E402
 from torch2jax.dlpack_passing import tree_j2t  # noqa: E402
 
 ####################################################################################################
 
 
-def test_single_output_fn_v1():
+def test_single_output_fn_flat():
     shape = (10, 2)
 
     def torch_fn(x, y):
@@ -31,15 +31,12 @@ def test_single_output_fn_v1():
 
     for device in device_list:
         for dtype in dtype_list:
-            #for method in ["output_shapes", "output_shapes_fn", "example_args"]:
             for method in ["output_shapes", "example_args"]:
                 if method == "output_shapes":
-                    jax_fn = torch2jax_v1(torch_fn, output_shapes=[shape])
-                #elif method == "output_shapes_fn":
-                #    jax_fn = torch2jax_v1(torch_fn, output_shapes_fn=lambda x, y: [x.shape])
+                    jax_fn = torch2jax_flat(torch_fn, output_shapes=[shape])
                 elif method == "example_args":
                     example_args = (torch.randn(shape), torch.randn(shape).reshape(-1))
-                    jax_fn = torch2jax_v1(torch_fn, example_args=example_args)
+                    jax_fn = torch2jax_flat(torch_fn, example_args=example_args)
 
                 x = jax_randn(shape, device=device, dtype=dtype)
                 y = jax_randn(shape, device=device, dtype=dtype).reshape(-1)
@@ -71,7 +68,7 @@ def test_single_output_fn_v1():
                 assert err < 1e-5
 
 
-def test_multi_output_fn_v1():
+def test_multi_output_fn_flat():
     shape = (10, 2)
 
     def torch_fn(x, y):
@@ -87,12 +84,10 @@ def test_multi_output_fn_v1():
             #for method in ["output_shapes", "output_shapes_fn", "example_args"]:
             for method in ["output_shapes", "example_args"]:
                 if method == "output_shapes":
-                    jax_fn = torch2jax_v1(torch_fn, output_shapes=[shape, (5,)])
-                #elif method == "output_shapes_fn":
-                #    jax_fn = torch2jax_v1(torch_fn, output_shapes_fn=lambda x, y: [x.shape, (5,)])
+                    jax_fn = torch2jax_flat(torch_fn, output_shapes=[shape, (5,)])
                 elif method == "example_args":
                     example_args = (torch.randn(shape), torch.randn(shape).reshape(-1))
-                    jax_fn = torch2jax_v1(torch_fn, example_args=example_args)
+                    jax_fn = torch2jax_flat(torch_fn, example_args=example_args)
 
                 x = jax_randn(shape, device=device, dtype=dtype)
                 y = jax_randn(shape, device=device, dtype=dtype).reshape(-1)
@@ -267,5 +262,5 @@ def test_multi_output_fn():
 if __name__ == "__main__":
     test_single_output_fn()
     test_multi_output_fn()
-    test_single_output_fn_v1()
-    test_multi_output_fn_v1()
+    test_single_output_fn_flat()
+    test_multi_output_fn_flat()

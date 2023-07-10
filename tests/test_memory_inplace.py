@@ -13,10 +13,10 @@ for path in paths:
 
 from utils import jax_randn  # noqa: E402
 from torch2jax import torch2jax  # noqa: E402
-from torch2jax.compat import torch2jax as torch2jax_v1  # noqa: E402
+from torch2jax.compat import torch2jax as torch2jax_flat  # noqa: E402
 
 
-def test_memory_inplace_v1():
+def test_memory_inplace_flat():
     # we're going to test if we can write in memory inplace
 
     def torch_fn(x):
@@ -29,7 +29,7 @@ def test_memory_inplace_v1():
     for device in device_list:
         for dtype in [jnp.float32, jnp.float64]:
             x = jax_randn((50,), device=device, dtype=dtype) * 0
-            jax_fn = torch2jax_v1(torch_fn, output_shapes=[x.shape])
+            jax_fn = torch2jax_flat(torch_fn, output_shapes=[x.shape])
             _ = jax_fn(x)[0]
             expected = jnp.concatenate([jnp.ones(5) * 17, jnp.zeros(45)])
             jax_device = jax.devices(device)[0]
@@ -65,4 +65,4 @@ def test_memory_inplace():
 
 if __name__ == "__main__":
     test_memory_inplace()
-    test_memory_inplace_v1()
+    test_memory_inplace_flat()

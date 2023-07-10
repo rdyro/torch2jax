@@ -15,18 +15,18 @@ for path in paths:
 
 from utils import jax_randn  # noqa: E402
 from torch2jax import torch2jax  # noqa: E402
-from torch2jax.compat import torch2jax as torch2jax_v1  # noqa: E402
+from torch2jax.compat import torch2jax as torch2jax_flat  # noqa: E402
 
 ####################################################################################################
 
 
-def test_single_output_fn_v1():
+def test_single_output_fn_flat():
     shape = (10, 2)
 
     def torch_fn(x, y):
         return (x + 1 - y.reshape(x.shape)) / torch.norm(y)
 
-    jax_fn = torch2jax_v1(torch_fn, output_shapes=[shape])
+    jax_fn = torch2jax_flat(torch_fn, output_shapes=[shape])
     device_list = ["cpu", "cuda"] if torch.cuda.is_available() else ["cpu"]
     dtype_list = [jnp.float32, jnp.float64]
 
@@ -62,7 +62,7 @@ def test_single_output_fn_v1():
             assert err < 1e-5
 
 
-def test_multi_output_fn_v1():
+def test_multi_output_fn_flat():
     shape = (10, 2)
 
     def torch_fn(x, y):
@@ -70,7 +70,7 @@ def test_multi_output_fn_v1():
         b = (x - y.reshape(x.shape)).reshape(-1)[:5]
         return a, b
 
-    jax_fn = torch2jax_v1(torch_fn, output_shapes=[shape, (5,)])
+    jax_fn = torch2jax_flat(torch_fn, output_shapes=[shape, (5,)])
     device_list = ["cpu", "cuda"] if torch.cuda.is_available() else ["cpu"]
     dtype_list = [jnp.float32, jnp.float64]
 
@@ -206,7 +206,7 @@ def test_multi_output_fn():
 ####################################################################################################
 
 if __name__ == "__main__":
-    test_single_output_fn_v1()
-    test_multi_output_fn_v1()
+    test_single_output_fn_flat()
+    test_multi_output_fn_flat()
     test_single_output_fn()
     test_multi_output_fn()

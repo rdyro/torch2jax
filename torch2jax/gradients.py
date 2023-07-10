@@ -30,7 +30,7 @@ def torch2jax_with_vjp(
 
     Args:
         torch_fn (Callable): Torch function to convert.
-        *example_arg (Any): Example arguments to as torch tensors or torch-compatible args.
+        *example_args (Any): Example arguments to as torch tensors or torch-compatible args.
         depth (int, optional): Max allowed differentiation depth, this is cheap. Defaults to 1.
         nondiff_argnums (list | tuple | None, optional): Which (whole) args to
                                                          not differentiate. Defaults to None.
@@ -48,6 +48,34 @@ def torch2jax_with_vjp(
     Returns:
         Callable: JIT-compatible JAX version of the torch function (with VJP
         defined up to depth `depth`).
+
+
+    Examples:
+        >>> import torch, jax 
+        >>> from torch2jax import torch2jax_with_vjp, tree_t2j
+        >>> # let's define the torch function and create some example arguments
+        >>> torch_fn = lambda x, y: torch.nn.CrossEntropyLoss()(x, y)
+        >>> xt, yt = torch.randn(10, 5), torch.randint(0, 5, (10,))
+        >>> # we can not convert the function to jax using the torch fn and example args
+        >>> jax_fn = torch2jax_with_vjp(torch_fn, xt, yt)
+        >>> jax_fn = jax.jit(jax_fn) # we can jit it too
+        >>> # let's convert the arguments to JAX arrays and call the function
+        >>> x, y = tree_t2j((xt, yt))
+        >>> jax_fn(x, y)
+        >>> # it works!
+
+        >>> # taking gradients is easy too
+        >>> g_fn = jax.grad(jax_fn, argnums=0)
+        >>> g_fn(x, y).shape
+        (10, 5)
+
+        >>> # creating a more complicated computational graph is of course possible
+        >>> lin_model = lambda z, W, b: z @ W + b
+        >>> z, W, b = tree_t2j([torch.randn((10, 20)), torch.randn(20, 5), torch.randn(5)])
+        >>> gz_fn = jax.grad(lambda z, W, b: jax_fn(lin_model(z, W, b), y), argnums=(1, 2))
+        >>> dW, db = gz_fn(z, W, b)
+        >>> dW.shape, db.shape
+        ((20, 5), (5,))
     """
     if output_shapes is None:
         with torch.no_grad():
