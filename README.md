@@ -1,16 +1,14 @@
 # torch2jax
 
+[Documentation](https://rdyro.github.io/torch2jax/)
 
 <a href="https://rdyro.github.io/torch2jax/">
-<p style="align:center">
+<p align="center">
 <img src="images/torch2jax_logo2.png" style="max-width:800px;width:70%;display:block;margin-left:auto;margin-right:auto"/>
 </p>
 </a>
 <br />
 
-<p style="align:center">
-[Documentation](https://rdyro.github.io/torch2jax/)
-</p>
 
 This package is designed to facilitate no-copy PyTorch calling from JAX under
 both eager execution and JIT. It leverages the JAX C++ extension interface,
