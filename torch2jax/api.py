@@ -157,6 +157,7 @@ def torch2jax(
 
     Args:
         fn (Callable): PyTorch function to wrap.
+        *example_args (Any): Example arguments as tensors or torch-compatible args.
         example_kw (Any | None, optional): Example keyword arguments. Defaults to None.
         example_kwargs (Any | None, optional): Example keyword arguments. Defaults to None.
         output_shapes (Any, optional): Output shapes or shapes + dtype struct. Defaults to None.
@@ -164,7 +165,7 @@ def torch2jax(
                                                    example arguments and keywords. Defaults to None.
 
     Returns:
-        Callable: Jit-compatible JAX function.
+        Callable: JIT-compatible JAX function.
 
     Examples:
         >>> import torch, jax 

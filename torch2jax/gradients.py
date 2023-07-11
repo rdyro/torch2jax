@@ -18,7 +18,7 @@ from .utils import _is_floating_point, dtype_t2j, normalize_shapes
 def torch2jax_with_vjp(
     torch_fn: Callable,
     *example_args: Any,
-    depth: int = 1,
+    depth: int = 2,
     nondiff_argnums: list | tuple | None = None,
     nondiff_mask: Any | None = None,
     output_shapes: Any | None = None,
@@ -30,7 +30,7 @@ def torch2jax_with_vjp(
 
     Args:
         torch_fn (Callable): Torch function to convert.
-        *example_args (Any): Example arguments to as torch tensors or torch-compatible args.
+        *example_args (Any): Example arguments as tensors or torch-compatible args.
         depth (int, optional): Max allowed differentiation depth, this is cheap. Defaults to 1.
         nondiff_argnums (list | tuple | None, optional): Which (whole) args to
                                                          not differentiate. Defaults to None.
@@ -46,8 +46,7 @@ def torch2jax_with_vjp(
                                          from torch. Defaults to True.
 
     Returns:
-        Callable: JIT-compatible JAX version of the torch function (with VJP
-        defined up to depth `depth`).
+        Callable: JIT-compatible JAX version of the torch function (VJP defined up to depth `depth`).
 
 
     Examples:
