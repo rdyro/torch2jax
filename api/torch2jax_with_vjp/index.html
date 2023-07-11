@@ -488,7 +488,7 @@
 
 
 <h0 id="torch2jax.gradients.torch2jax_with_vjp" class="doc doc-heading">
-<code class="highlight language-python"><span class="n">torch2jax</span><span class="o">.</span><span class="n">gradients</span><span class="o">.</span><span class="n">torch2jax_with_vjp</span><span class="p">(</span><span class="n">torch_fn</span><span class="p">,</span> <span class="o">*</span><span class="n">example_args</span><span class="p">,</span> <span class="n">depth</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">nondiff_argnums</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">nondiff_mask</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">output_shapes</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">use_zeros</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">_use_torch_vjp</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span></code>
+<code class="highlight language-python"><span class="n">torch2jax</span><span class="o">.</span><span class="n">gradients</span><span class="o">.</span><span class="n">torch2jax_with_vjp</span><span class="p">(</span><span class="n">torch_fn</span><span class="p">,</span> <span class="o">*</span><span class="n">example_args</span><span class="p">,</span> <span class="n">depth</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span> <span class="n">nondiff_argnums</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">nondiff_mask</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">output_shapes</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">use_zeros</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">_use_torch_vjp</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span></code>
 
 </h0>
 
@@ -530,7 +530,7 @@ for it up to <code>depth</code> recursively deep.</p>
           </td>
           <td>
             <div class="doc-md-description">
-              <p>Example arguments to as torch tensors or torch-compatible args.</p>
+              <p>Example arguments as tensors or torch-compatible args.</p>
             </div>
           </td>
           <td>
@@ -548,7 +548,7 @@ for it up to <code>depth</code> recursively deep.</p>
             </div>
           </td>
           <td>
-                <code>1</code>
+                <code>2</code>
           </td>
         </tr>
         <tr>
@@ -646,17 +646,7 @@ for it up to <code>depth</code> recursively deep.</p>
           </td>
           <td>
             <div class="doc-md-description">
-              <p>JIT-compatible JAX version of the torch function (with VJP</p>
-            </div>
-          </td>
-        </tr>
-        <tr>
-<td></td>          <td>
-                <code><span title="typing.Callable">Callable</span></code>
-          </td>
-          <td>
-            <div class="doc-md-description">
-              <p>defined up to depth <code>depth</code>).</p>
+              <p>JIT-compatible JAX version of the torch function (VJP defined up to depth <code>depth</code>).</p>
             </div>
           </td>
         </tr>
@@ -868,11 +858,10 @@ for it up to <code>depth</code> recursively deep.</p>
 <span class="normal">190</span>
 <span class="normal">191</span>
 <span class="normal">192</span>
-<span class="normal">193</span>
-<span class="normal">194</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span> <span class="nf">torch2jax_with_vjp</span><span class="p">(</span>
+<span class="normal">193</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span> <span class="nf">torch2jax_with_vjp</span><span class="p">(</span>
     <span class="n">torch_fn</span><span class="p">:</span> <span class="n">Callable</span><span class="p">,</span>
     <span class="o">*</span><span class="n">example_args</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span>
-    <span class="n">depth</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">1</span><span class="p">,</span>
+    <span class="n">depth</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">2</span><span class="p">,</span>
     <span class="n">nondiff_argnums</span><span class="p">:</span> <span class="nb">list</span> <span class="o">|</span> <span class="nb">tuple</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">nondiff_mask</span><span class="p">:</span> <span class="n">Any</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">output_shapes</span><span class="p">:</span> <span class="n">Any</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
@@ -884,7 +873,7 @@ for it up to <code>depth</code> recursively deep.</p>
 
 <span class="sd">    Args:</span>
 <span class="sd">        torch_fn (Callable): Torch function to convert.</span>
-<span class="sd">        *example_args (Any): Example arguments to as torch tensors or torch-compatible args.</span>
+<span class="sd">        *example_args (Any): Example arguments as tensors or torch-compatible args.</span>
 <span class="sd">        depth (int, optional): Max allowed differentiation depth, this is cheap. Defaults to 1.</span>
 <span class="sd">        nondiff_argnums (list | tuple | None, optional): Which (whole) args to</span>
 <span class="sd">                                                         not differentiate. Defaults to None.</span>
@@ -900,8 +889,7 @@ for it up to <code>depth</code> recursively deep.</p>
 <span class="sd">                                         from torch. Defaults to True.</span>
 
 <span class="sd">    Returns:</span>
-<span class="sd">        Callable: JIT-compatible JAX version of the torch function (with VJP</span>
-<span class="sd">        defined up to depth `depth`).</span>
+<span class="sd">        Callable: JIT-compatible JAX version of the torch function (VJP defined up to depth `depth`).</span>
 
 
 <span class="sd">    Examples:</span>
