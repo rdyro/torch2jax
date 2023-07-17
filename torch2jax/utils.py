@@ -24,8 +24,10 @@ def find_unique_id() -> int:
 
 def dtype_t2j(dtype: torch.dtype) -> jnp.dtype:
     """Translate torch dtype to jax dtype."""
-    if isinstance(dtype, jnp.dtype):
-        return dtype
+    try:
+        return jnp.dtype(dtype)
+    except TypeError:
+        pass
     return {
         torch.float32: jnp.float32,
         torch.float: jnp.float32,
