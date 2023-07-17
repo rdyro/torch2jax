@@ -94,6 +94,11 @@ x, y, z = jax.jit(jax_fn)(a, b)
 
 ```
 
+For a more advanced discussion on different ways of specifying input/output
+specification of the wrapped function, take a look at:
+[input_output_specification.ipynb](./examples/input_output_specification.ipynb)
+notebook in the `examples` folder.
+
 # Automatically defining gradients
 
 Automatic reverse-mode gradient definitions are now supported for wrapped
