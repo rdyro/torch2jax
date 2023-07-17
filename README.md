@@ -155,6 +155,25 @@ Caveats:
   [torch.func](https://pytorch.org/docs/master/func.html) has a good description
   of how to convert e.g., PyTorch models, to non-mutable formulation
 
+# Dealing with Changing Shapes
+
+You can deal with changing input shapes by calling `torch2jax` (and
+`torch2jax_with_vjp`) in the JAX function, both under JIT and eagerly!
+
+```python
+@jax.jit
+def compute(a, b, c):
+    d = torch2jax_with_vjp(
+        torch_fn,
+        jax.ShapeDtypeStruct(a.shape, dtype_t2j(a.dtype)),
+        jax.ShapeDtypeStruct(b.shape, dtype_t2j(b.dtype)),
+        output_shapes=jax.ShapeDtypeStruct(a.shape, dtype_t2j(a.dtype)),
+    )(a, b)
+    return d - c
+
+print(compute(a, b, a))
+```
+
 
 # Timing Comparison vs `pure_callback`
 
