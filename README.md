@@ -198,6 +198,11 @@ the GPU.
 
 # Changelog
 
+- version 0.4.4
+  - introduced a `use_torch_vjp` (defaulting to True) flag in `torch2jax_with_vjp` which 
+    can be set to False to use the old `torch.autograd.grad` for taking
+    gradients, it is the slower method, but is more compatible
+
 - version 0.4.3
   - added a note in README about specifying input/output structure without instantiating data
 

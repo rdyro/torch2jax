@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Callable, Any
 from functools import partial
+from warnings import warn
 
 import torch
 from torch import Tensor, Size
@@ -30,10 +31,10 @@ def torch2jax_flat(
     Args:
         fn (Callable): PyTorch function.
         example_args (list[Tensor] | tuple[Tensor], optional): Example arguments. Defaults to None.
-        output_shapes (list[tuple[int]] | tuple[tuple[int]], optional): Output shapes (or shapes 
-                                                                        with dtype).  Defaults to 
+        output_shapes (list[tuple[int]] | tuple[tuple[int]], optional): Output shapes (or shapes
+                                                                        with dtype).  Defaults to
                                                                         None.
-        use_torch_vmap (bool, optional): Whether to use torch.vmap for jax batching rule. 
+        use_torch_vmap (bool, optional): Whether to use torch.vmap for jax batching rule.
                                          Alternatively use a dumb for loop. Defaults to True.
 
     Returns:
@@ -115,6 +116,10 @@ def torch2jax_flat(
                 outaxes,
             )
         else:
+            warn(
+                "You are NOT using PyTorch's functional vmap. "
+                + "This is highly experimental and may be slower."
+            )
             assert all(axis is None or axis == 0 for axis in axes)
             if all(axis is None for axis in axes):
                 return wrapped_fn(*args)
@@ -151,8 +156,9 @@ def torch2jax(
     example_kwargs: Any | None = None,
     output_shapes: Any = None,
     input_struct: PyTreeDef | None = None,
+    use_torch_vmap: bool = True,
 ) -> Callable:
-    """Define a jit-compatible JAX function that calls a PyTorch function.  Arbitrary nesting of 
+    """Define a jit-compatible JAX function that calls a PyTorch function.  Arbitrary nesting of
     arguments and outputs is supported.
 
     Args:
@@ -161,14 +167,15 @@ def torch2jax(
         example_kw (Any | None, optional): Example keyword arguments. Defaults to None.
         example_kwargs (Any | None, optional): Example keyword arguments. Defaults to None.
         output_shapes (Any, optional): Output shapes or shapes + dtype struct. Defaults to None.
-        input_struct (PyTreeDef | None, optional): Input structure, which can be inferred from 
+        input_struct (PyTreeDef | None, optional): Input structure, which can be inferred from
                                                    example arguments and keywords. Defaults to None.
-
+        use_torch_vmap (bool, optional): Whether to batch using torch.vmap or a dumb loop. Defaults to
+                                         True.
     Returns:
         Callable: JIT-compatible JAX function.
 
     Examples:
-        >>> import torch, jax 
+        >>> import torch, jax
         >>> from torch2jax import torch2jax_with_vjp, tree_t2j
         >>> # let's define the torch function and create some example arguments
         >>> torch_fn = lambda x, y: torch.nn.CrossEntropyLoss()(x, y)
@@ -221,8 +228,10 @@ def torch2jax(
             ret = fn(*args)
         return tree_flatten(ret)[0]
 
-    # define the wrapped function using flat interface 
-    wrapped_fn_flat = torch2jax_flat(flat_fn, output_shapes=output_shapes)
+    # define the wrapped function using flat interface
+    wrapped_fn_flat = torch2jax_flat(
+        flat_fn, output_shapes=output_shapes, use_torch_vmap=use_torch_vmap
+    )
 
     if has_kw:
 

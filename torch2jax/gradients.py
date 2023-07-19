@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Callable, Any
 from functools import partial
+from warnings import warn
 
 import torch
 import jax
@@ -23,7 +24,8 @@ def torch2jax_with_vjp(
     nondiff_mask: Any | None = None,
     output_shapes: Any | None = None,
     use_zeros: bool = True,
-    _use_torch_vjp: bool = True,
+    use_torch_vjp: bool = True,
+    use_torch_vmap: bool | None = None,
 ) -> Callable:
     """Convert a torch function to a jax function and define a custom vjp rule
     for it up to `depth` recursively deep.
@@ -42,15 +44,18 @@ def torch2jax_with_vjp(
         use_zeros (bool, optional): Whether to set gradients of non-diff args to
                                     zeros or None. None does not appear to work
                                     with JAX currently. Defaults to True.
-        _use_torch_vjp (bool, optional): Whether to use custom vjp or the one
-                                         from torch. Defaults to True.
+        use_torch_vjp (bool, optional): Whether to use custom vjp or the one from torch. Defaults
+                                        to True.
+        use_torch_vmap (bool | None, optional): Whether to torch.vmap for batch or a dumb for loop.
+                                                Defaults to True for use_torch_vjp and False
+                                                otherwise.
 
     Returns:
         Callable: JIT-compatible JAX version of the torch function (VJP defined up to depth `depth`).
 
 
     Examples:
-        >>> import torch, jax 
+        >>> import torch, jax
         >>> from torch2jax import torch2jax_with_vjp, tree_t2j
         >>> # let's define the torch function and create some example arguments
         >>> torch_fn = lambda x, y: torch.nn.CrossEntropyLoss()(x, y)
@@ -76,13 +81,18 @@ def torch2jax_with_vjp(
         >>> dW.shape, db.shape
         ((20, 5), (5,))
     """
+
+    use_torch_vmap = use_torch_vjp if use_torch_vmap is None else use_torch_vmap
+
     if output_shapes is None:
         with torch.no_grad():
             outputs = torch_fn(*example_args)
         output_shapes = tree_map(
             lambda x: ShapeDtypeStruct(dtype=dtype_t2j(x.dtype), shape=x.shape), outputs
         )
-    fn = torch2jax(torch_fn, *example_args, output_shapes=output_shapes)
+    fn = torch2jax(
+        torch_fn, *example_args, output_shapes=output_shapes, use_torch_vmap=use_torch_vmap
+    )
 
     # if this we've reached the requested differentiation depth, refrain from defining a vjp rule ##
     if depth <= 0:
@@ -126,39 +136,29 @@ def torch2jax_with_vjp(
         args_collected = tree_unflatten(args_struct, args_collected_flat)
         return tree_flatten(torch_fn(*args_collected))[0]
 
-    @partial(torch.func.grad, argnums=tuple(range(len(example_args_flat) - sum(nondiff_mask_flat))))
-    def _custom_grad_fn(*diff_args_flat, all_args_flat=None, gs_flat=None):
-        return sum(
-            torch.sum(g * o)
-            for (g, o) in zip(
-                gs_flat, _torch_fn_diff_flat(*diff_args_flat, all_args_flat=all_args_flat)
-            )
-        )
-
     # define the actual torch VJP function #########################################################
     def bwd_fn_torch(args, gs):
-        if all(not m for m in nondiff_mask_flat):
-            _, vjp_fn = torch.func.vjp(
-                torch_fn,
-                *args,
-            )
-            return vjp_fn(gs)
-
         args_flat = tree_flatten(args)[0]
         diff_args_flat = [arg for (arg, m) in zip(args_flat, nondiff_mask_flat) if not m]
         gs_flat = tree_flatten(gs)[0]
 
         # use either torch's vjp or our custom vjp only wrt differentiable arguments ###############
-        if _use_torch_vjp:
+        if use_torch_vjp:
             diff_vjp_vals_flat = list(
                 torch.func.vjp(
                     partial(_torch_fn_diff_flat, all_args_flat=args_flat), *diff_args_flat
                 )[1](gs_flat)
             )
         else:
-            diff_vjp_vals_flat = list(
-                _custom_grad_fn(*diff_args_flat, all_args_flat=args_flat, gs_flat=gs_flat)
+            warn("You are NOT using PyTorch's functional VJP. This is highly experimental.")
+            [diff_arg_flat.requires_grad_(True) for diff_arg_flat in diff_args_flat]
+            ret = sum(
+                torch.sum(g * r)
+                for (g, r) in zip(
+                    gs_flat, _torch_fn_diff_flat(*diff_args_flat, all_args_flat=args_flat)
+                )
             )
+            diff_vjp_vals_flat = list(torch.autograd.grad(ret, diff_args_flat, create_graph=True))
 
         # reconstruct the full vjp including for nondiff arguments #################################
         vjp_vals_flat = []
@@ -186,6 +186,8 @@ def torch2jax_with_vjp(
         example_outputs,
         output_shapes=next_output_shapes,
         depth=depth - 1,
+        use_torch_vjp=use_torch_vjp,
+        use_torch_vmap=use_torch_vmap,
     )
     # define the custom vjp using the fwd_fn and bwd_fn ############################################
     fn.defvjp(fwd_fn, bwd_fn)
