@@ -198,6 +198,11 @@ the GPU.
 
 # Changelog
 
+- version 0.4.5
+  - `torch2jax_with_vjp` now automatically selects `use_torch_vjp=False` if the `True` fails
+  - bug-fix: cuda stream is now synchronized after a torch call explicitly to
+    avoid reading unwritten data
+
 - version 0.4.4
   - introduced a `use_torch_vjp` (defaulting to True) flag in `torch2jax_with_vjp` which 
     can be set to False to use the old `torch.autograd.grad` for taking

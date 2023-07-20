@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sys
+import pdb
 from pathlib import Path
 
 import torch
@@ -80,10 +81,16 @@ def test_torch2jax_with_vjp():
                 err_h = jnp.linalg.norm(h[0] - h_expected[0]) + jnp.linalg.norm(
                     h[1] - h_expected[1]
                 )
+                print(f"Error in f value is {err_f:.4e}")
+                print(f"Error in g value is {err_g:.4e}")
+                print(f"Error in h value is {err_h:.4e}")
 
-                assert err_f < 1e-5, f"Error in f value is {err_f:.4e}"
-                assert err_g < 1e-5, f"Error in g value is {err_g:.4e}"
-                assert err_h < 1e-5, f"Error in h value is {err_h:.4e}"
+                try:
+                    assert err_f.block_until_ready() < 1e-5, f"Error in f value is {err_f:.4e}"
+                    assert err_g.block_until_ready() < 1e-5, f"Error in g value is {err_g:.4e}"
+                    assert err_h.block_until_ready() < 1e-5, f"Error in h value is {err_h:.4e}"
+                except:
+                    pdb.set_trace()
 
                 # test values when under JIT ########################
                 f = jax.jit(wrap_jax_f_fn)(x, y)
@@ -98,9 +105,12 @@ def test_torch2jax_with_vjp():
                     h[1] - h_expected[1]
                 )
 
-                assert err_f < 1e-5, f"Error in f value is {err_f:.4e}"
-                assert err_g < 1e-5, f"Error in g value is {err_g:.4e}"
-                assert err_h < 1e-5, f"Error in h value is {err_h:.4e}"
+                try:
+                    assert err_f.block_until_ready() < 1e-5, f"Error in f value is {err_f:.4e}"
+                    assert err_g.block_until_ready() < 1e-5, f"Error in g value is {err_g:.4e}"
+                    assert err_h.block_until_ready() < 1e-5, f"Error in h value is {err_h:.4e}"
+                except:
+                    pdb.set_trace()
 
 
 def test_jacobian():
@@ -131,7 +141,8 @@ def test_jacobian():
                     err = sum(
                         jnp.linalg.norm(J_flat[i] - J_expected_flat[i]) for i in range(len(J_flat))
                     )
-                    assert err < 1e-5
+                    msg = f"device:{device} dtype:{dtype} use_torch_vjp:{use_torch_vjp}"
+                    assert err < 1e-5, msg
 
                     # with jit
                     J = jax.jit(jax.jacobian(fn_jax, argnums=argnums))(a, b)
@@ -140,7 +151,8 @@ def test_jacobian():
                     err = sum(
                         jnp.linalg.norm(J_flat[i] - J_expected_flat[i]) for i in range(len(J_flat))
                     )
-                    assert err < 1e-5
+                    msg = f"device:{device} dtype:{dtype} use_torch_vjp:{use_torch_vjp}"
+                    assert err < 1e-5, msg
 
 
 def test_hessian():
@@ -171,7 +183,8 @@ def test_hessian():
                     err = sum(
                         jnp.linalg.norm(H_flat[i] - H_expected_flat[i]) for i in range(len(H_flat))
                     )
-                    assert err < 1e-5
+                    msg = f"device:{device} dtype:{dtype} use_torch_vjp:{use_torch_vjp}"
+                    assert err < 1e-5, msg
 
                     # with jit
                     H = jax.jit(jax.jacobian(jax.jacobian(fn_jax, argnums=argnums)))(a, b)
@@ -180,7 +193,8 @@ def test_hessian():
                     err = sum(
                         jnp.linalg.norm(H_flat[i] - H_expected_flat[i]) for i in range(len(H_flat))
                     )
-                    assert err < 1e-5
+                    msg = f"device:{device} dtype:{dtype} use_torch_vjp:{use_torch_vjp}"
+                    assert err < 1e-5, msg
 
 
 if __name__ == "__main__":

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import traceback
 from typing import Callable, Any
 from functools import partial
 from warnings import warn
@@ -44,8 +45,10 @@ def torch2jax_with_vjp(
         use_zeros (bool, optional): Whether to set gradients of non-diff args to
                                     zeros or None. None does not appear to work
                                     with JAX currently. Defaults to True.
-        use_torch_vjp (bool, optional): Whether to use custom vjp or the one from torch. Defaults
-                                        to True.
+        use_torch_vjp (bool, optional): Whether to use custom vjp or the one from torch. False means
+                                        fallback to `torch.autograd.grad` for more compatibility.
+                                        Some older external library PyTorch code may need this
+                                        fallback. Defaults to True (i.e., do not use fallback).
         use_torch_vmap (bool | None, optional): Whether to torch.vmap for batch or a dumb for loop.
                                                 Defaults to True for use_torch_vjp and False
                                                 otherwise.
@@ -143,14 +146,31 @@ def torch2jax_with_vjp(
         gs_flat = tree_flatten(gs)[0]
 
         # use either torch's vjp or our custom vjp only wrt differentiable arguments ###############
+        grads_computed = False
         if use_torch_vjp:
-            diff_vjp_vals_flat = list(
-                torch.func.vjp(
-                    partial(_torch_fn_diff_flat, all_args_flat=args_flat), *diff_args_flat
-                )[1](gs_flat)
-            )
-        else:
-            warn("You are NOT using PyTorch's functional VJP. This is highly experimental.")
+            try:
+                diff_vjp_vals_flat = list(
+                    torch.func.vjp(
+                        partial(_torch_fn_diff_flat, all_args_flat=args_flat), *diff_args_flat
+                    )[1](gs_flat)
+                )
+                grads_computed = True
+            except RuntimeError:
+                tb = traceback.format_exc()
+                msg = (
+                    "Somewhere in your PyTorch computation graph, a custom backward function is "
+                    + "defined in the old way (see "
+                    + "https://pytorch.org/docs/stable/notes/extending.html). This is only "
+                    + " experimentally supported in torch2jax. We will use a fallback based on "
+                    + "`torch.autograd.grad` instead. Please pass `use_torch_vjp=False` to "
+                    + " `torch2jax_with_vjp` if you wish to use this fallback explicitly."
+                )
+                msg = "\n".join(["#" * 80, msg, tb, "#" * 80])
+                warn(msg)
+                grads_computed = False
+        if not grads_computed:
+            if not use_torch_vjp:
+                warn("You are NOT using PyTorch's functional VJP. This is highly experimental.")
             [diff_arg_flat.requires_grad_(True) for diff_arg_flat in diff_args_flat]
             ret = sum(
                 torch.sum(g * r)

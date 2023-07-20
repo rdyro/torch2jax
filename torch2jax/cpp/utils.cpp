@@ -172,6 +172,7 @@ void apply_torch_call(void **buffers, const DynamicTorchCallDescriptor &d) {
   
   // 4. unwrap the output tensors and copy them to the output buffers
   assert(results.size() == nargout);
+  bool is_cuda = false;
   for (int64_t i = 0; i < nargout; i++) {
     auto size = torch::IntArrayRef((int64_t *)d.shapes_out[i].shape.data(),
                                    (size_t)d.shapes_out[i].ndim);
@@ -179,8 +180,13 @@ void apply_torch_call(void **buffers, const DynamicTorchCallDescriptor &d) {
     auto options = tensor_options(d.shapes_out[i].dtype, d.device);
     //torch::Tensor tharray = torch::from_blob(buf, size, options);
     torch::Tensor tharray = torch::from_blob(buffers[nargin + i], size, options);
+    is_cuda = is_cuda || (d.device.type == torch::kCUDA);
     PyObject *out = results[i].ptr();
     THPVariable_Check(out);
     tharray.copy_(THPVariable_Unpack(out));
   }
+
+#ifdef TORCH2JAX_WITH_CUDA
+  if (is_cuda) torch::cuda::synchronize();
+#endif
 }
