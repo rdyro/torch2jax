@@ -490,14 +490,14 @@
 
 
 <h0 id="torch2jax.api.torch2jax" class="doc doc-heading">
-<code class="highlight language-python"><span class="n">torch2jax</span><span class="o">.</span><span class="n">api</span><span class="o">.</span><span class="n">torch2jax</span><span class="p">(</span><span class="n">fn</span><span class="p">,</span> <span class="o">*</span><span class="n">example_args</span><span class="p">,</span> <span class="n">example_kw</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">example_kwargs</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">output_shapes</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">input_struct</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span></code>
+<code class="highlight language-python"><span class="n">torch2jax</span><span class="o">.</span><span class="n">api</span><span class="o">.</span><span class="n">torch2jax</span><span class="p">(</span><span class="n">fn</span><span class="p">,</span> <span class="o">*</span><span class="n">example_args</span><span class="p">,</span> <span class="n">example_kw</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">example_kwargs</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">output_shapes</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">input_struct</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">use_torch_vmap</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span></code>
 
 </h0>
 
 
   <div class="doc doc-contents first">
   
-      <p>Define a jit-compatible JAX function that calls a PyTorch function.  Arbitrary nesting of 
+      <p>Define a jit-compatible JAX function that calls a PyTorch function.  Arbitrary nesting of
 arguments and outputs is supported.</p>
 
   <p><strong>Parameters:</strong></p>
@@ -588,12 +588,27 @@ arguments and outputs is supported.</p>
           </td>
           <td>
             <div class="doc-md-description">
-              <p>Input structure, which can be inferred from 
+              <p>Input structure, which can be inferred from
                                        example arguments and keywords. Defaults to None.</p>
             </div>
           </td>
           <td>
                 <code>None</code>
+          </td>
+        </tr>
+        <tr>
+          <td><code>use_torch_vmap</code></td>
+          <td>
+                <code>bool</code>
+          </td>
+          <td>
+            <div class="doc-md-description">
+              <p>Whether to batch using torch.vmap or a dumb loop. Defaults to
+                             True.</p>
+            </div>
+          </td>
+          <td>
+                <code>True</code>
           </td>
         </tr>
     </tbody>
@@ -622,7 +637,7 @@ arguments and outputs is supported.</p>
   </table>
 
 <p><strong>Examples:</strong></p>
-    <div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="kn">import</span> <span class="nn">torch</span><span class="o">,</span> <span class="nn">jax</span> 
+    <div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="kn">import</span> <span class="nn">torch</span><span class="o">,</span> <span class="nn">jax</span>
 <span class="gp">&gt;&gt;&gt; </span><span class="kn">from</span> <span class="nn">torch2jax</span> <span class="kn">import</span> <span class="n">torch2jax_with_vjp</span><span class="p">,</span> <span class="n">tree_t2j</span>
 <span class="gp">&gt;&gt;&gt; </span><span class="c1"># let&#39;s define the torch function and create some example arguments</span>
 <span class="gp">&gt;&gt;&gt; </span><span class="n">torch_fn</span> <span class="o">=</span> <span class="k">lambda</span> <span class="n">x</span><span class="p">,</span> <span class="n">y</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">CrossEntropyLoss</span><span class="p">()(</span><span class="n">x</span><span class="p">,</span> <span class="n">y</span><span class="p">)</span>
@@ -638,12 +653,7 @@ arguments and outputs is supported.</p>
 
       <details class="quote">
         <summary>Source code in <code>torch2jax/api.py</code></summary>
-        <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">147</span>
-<span class="normal">148</span>
-<span class="normal">149</span>
-<span class="normal">150</span>
-<span class="normal">151</span>
-<span class="normal">152</span>
+        <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">152</span>
 <span class="normal">153</span>
 <span class="normal">154</span>
 <span class="normal">155</span>
@@ -730,15 +740,25 @@ arguments and outputs is supported.</p>
 <span class="normal">236</span>
 <span class="normal">237</span>
 <span class="normal">238</span>
-<span class="normal">239</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span> <span class="nf">torch2jax</span><span class="p">(</span>
+<span class="normal">239</span>
+<span class="normal">240</span>
+<span class="normal">241</span>
+<span class="normal">242</span>
+<span class="normal">243</span>
+<span class="normal">244</span>
+<span class="normal">245</span>
+<span class="normal">246</span>
+<span class="normal">247</span>
+<span class="normal">248</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span> <span class="nf">torch2jax</span><span class="p">(</span>
     <span class="n">fn</span><span class="p">:</span> <span class="n">Callable</span><span class="p">,</span>
     <span class="o">*</span><span class="n">example_args</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span>
     <span class="n">example_kw</span><span class="p">:</span> <span class="n">Any</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">example_kwargs</span><span class="p">:</span> <span class="n">Any</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">output_shapes</span><span class="p">:</span> <span class="n">Any</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">input_struct</span><span class="p">:</span> <span class="n">PyTreeDef</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">use_torch_vmap</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Callable</span><span class="p">:</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Define a jit-compatible JAX function that calls a PyTorch function.  Arbitrary nesting of </span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Define a jit-compatible JAX function that calls a PyTorch function.  Arbitrary nesting of</span>
 <span class="sd">    arguments and outputs is supported.</span>
 
 <span class="sd">    Args:</span>
@@ -747,14 +767,15 @@ arguments and outputs is supported.</p>
 <span class="sd">        example_kw (Any | None, optional): Example keyword arguments. Defaults to None.</span>
 <span class="sd">        example_kwargs (Any | None, optional): Example keyword arguments. Defaults to None.</span>
 <span class="sd">        output_shapes (Any, optional): Output shapes or shapes + dtype struct. Defaults to None.</span>
-<span class="sd">        input_struct (PyTreeDef | None, optional): Input structure, which can be inferred from </span>
+<span class="sd">        input_struct (PyTreeDef | None, optional): Input structure, which can be inferred from</span>
 <span class="sd">                                                   example arguments and keywords. Defaults to None.</span>
-
+<span class="sd">        use_torch_vmap (bool, optional): Whether to batch using torch.vmap or a dumb loop. Defaults to</span>
+<span class="sd">                                         True.</span>
 <span class="sd">    Returns:</span>
 <span class="sd">        Callable: JIT-compatible JAX function.</span>
 
 <span class="sd">    Examples:</span>
-<span class="sd">        &gt;&gt;&gt; import torch, jax </span>
+<span class="sd">        &gt;&gt;&gt; import torch, jax</span>
 <span class="sd">        &gt;&gt;&gt; from torch2jax import torch2jax_with_vjp, tree_t2j</span>
 <span class="sd">        &gt;&gt;&gt; # let&#39;s define the torch function and create some example arguments</span>
 <span class="sd">        &gt;&gt;&gt; torch_fn = lambda x, y: torch.nn.CrossEntropyLoss()(x, y)</span>
@@ -807,8 +828,10 @@ arguments and outputs is supported.</p>
             <span class="n">ret</span> <span class="o">=</span> <span class="n">fn</span><span class="p">(</span><span class="o">*</span><span class="n">args</span><span class="p">)</span>
         <span class="k">return</span> <span class="n">tree_flatten</span><span class="p">(</span><span class="n">ret</span><span class="p">)[</span><span class="mi">0</span><span class="p">]</span>
 
-    <span class="c1"># define the wrapped function using flat interface </span>
-    <span class="n">wrapped_fn_flat</span> <span class="o">=</span> <span class="n">torch2jax_flat</span><span class="p">(</span><span class="n">flat_fn</span><span class="p">,</span> <span class="n">output_shapes</span><span class="o">=</span><span class="n">output_shapes</span><span class="p">)</span>
+    <span class="c1"># define the wrapped function using flat interface</span>
+    <span class="n">wrapped_fn_flat</span> <span class="o">=</span> <span class="n">torch2jax_flat</span><span class="p">(</span>
+        <span class="n">flat_fn</span><span class="p">,</span> <span class="n">output_shapes</span><span class="o">=</span><span class="n">output_shapes</span><span class="p">,</span> <span class="n">use_torch_vmap</span><span class="o">=</span><span class="n">use_torch_vmap</span>
+    <span class="p">)</span>
 
     <span class="k">if</span> <span class="n">has_kw</span><span class="p">:</span>
 
