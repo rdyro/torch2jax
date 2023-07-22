@@ -1,17 +1,17 @@
 #ifndef _MAIN_H_
 #define _MAIN_H_
 
+#include <Python.h>
+#include <pybind11/pybind11.h>
+#include <stdio.h>
+#include <torch/extension.h>
+
 #include <cstddef>
 #include <cstdint>
 #include <stdexcept>
-#include <stdio.h>
 #include <string>
 #include <type_traits>
 #include <vector>
-
-#include <Python.h>
-#include <pybind11/pybind11.h>
-#include <torch/extension.h>
 
 using namespace std;
 namespace py = pybind11;
@@ -30,6 +30,8 @@ namespace py = pybind11;
 #define DATA_TYPE_FLOAT16 6
 #define DATA_TYPE_FLOAT32 7
 #define DATA_TYPE_FLOAT64 8
+
+#define MASK32BIT 0xFFFFFFFF
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -56,22 +58,23 @@ struct DynamicTorchCallDescriptor {
 ////////////////////////////////////////////////////////////////////////////////
 
 class DescriptorDataAccessor {
-public:
-  DescriptorDataAccessor(const void **data_ptr, const char *data) {
-    this->data_ptr = data_ptr;
-    this->data = data;
-  }
-  int64_t get(int64_t index) const {
-    if (this->data_ptr != nullptr) {
-      return reinterpret_cast<const int64_t *>(data_ptr[index])[0];
+ public:
+  DescriptorDataAccessor(const int64_t *data64, const int32_t *data32)
+      : data64(data64), data32(data32) {}
+
+  int64_t get(int64_t i) const {
+    if (this->data64 != nullptr) {
+      return (this->data64)[i];
     } else {
-      return reinterpret_cast<const int64_t *>(data)[index];
+      int64_t upper = (this->data32)[2 * i] & MASK32BIT;
+      int64_t lower = (this->data32)[2 * i + 1] & MASK32BIT;
+      return (upper << 32) | lower;
     }
   }
 
-private:
-  const void **data_ptr;
-  const char *data;
+ private:
+  const int64_t *data64;
+  const int32_t *data32;
 };
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -96,7 +99,8 @@ bit_cast(const From &src) noexcept {
 
 /// @brief Converts a C++ function to a PyCapsule
 /// @return PyCapsule of the function
-template <typename T> py::capsule encapsulateFunction(T *fn) {
+template <typename T>
+py::capsule encapsulateFunction(T *fn) {
   return py::capsule(bit_cast<void *>(fn), "xla._CUSTOM_CALL_TARGET");
 }
 
@@ -146,7 +150,7 @@ torch::TensorOptions tensor_options(int64_t dtype,
 /// @param buffers Array of pointers to input and then output buffers
 /// @param d The Torch call descriptor, contains input & output shapes and
 /// device and call id
-//template <typename T>
+// template <typename T>
 void apply_torch_call(void **buffers, const DynamicTorchCallDescriptor &d);
 
 #endif

@@ -198,6 +198,10 @@ the GPU.
 
 # Changelog
 
+- version 0.4.6
+  - bug-fix: cuda stream is now synchronized before and after a torch call explicitly to
+    avoid reading unwritten data
+
 - version 0.4.5
   - `torch2jax_with_vjp` now automatically selects `use_torch_vjp=False` if the `True` fails
   - bug-fix: cuda stream is now synchronized after a torch call explicitly to
