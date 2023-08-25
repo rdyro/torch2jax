@@ -25,15 +25,19 @@ cpu_times_torch, cuda_times_torch = [], []
 
 numels = np.logspace(3, 8, 20, dtype=int)
 for numel in tqdm(numels):
-    shape = [numel]
-    jax_fn = jax.jit(torch2jax(torch_fn, output_shapes=[shape]))
-    jax2_fn = jax.jit(wrap_torch_fn(torch_fn, output_shapes=[shape]))
     trials = 50
+    shape = [numel]
 
     for device in ["cpu", "cuda"]:
         dtype = jnp.float64 if device == "cpu" else jnp.float32
         a = jax_randn(shape, device=device, dtype=dtype)
         b = jax_randn(shape, device=device, dtype=dtype)
+        jax_fn = jax.jit(
+            torch2jax(torch_fn, a, b, output_shapes=jax.ShapeDtypeStruct((numel,), dtype))
+        )
+        jax2_fn = jax.jit(
+            wrap_torch_fn(torch_fn, output_shapes=jax.ShapeDtypeStruct((numel,), dtype))
+        )
 
         # compile
         jax_fn(a, b)[0].block_until_ready()
@@ -115,6 +119,6 @@ ax[1].set_ylim(ylim)
 ax[1].grid(True, which="both")
 
 plt.tight_layout()
-plt.savefig("time_difference.png", dpi=200, bbox_inches="tight", pad_inches=0.0)
-plt.savefig("time_difference.pdf", dpi=200, bbox_inches="tight", pad_inches=0.0)
+plt.savefig("time_difference_2.png", dpi=200, bbox_inches="tight", pad_inches=0.0)
+plt.savefig("time_difference_2.pdf", dpi=200, bbox_inches="tight", pad_inches=0.0)
 plt.show()

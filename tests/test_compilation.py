@@ -17,6 +17,7 @@ def _test_compilation():
 
 
 def _test_forced_compilation():
+    print("testing forced compilation")
     cpp_module = compile_and_import_module(force_recompile=True)
     assert cpp_module is not None
 
@@ -45,8 +46,8 @@ def _test_compilation_caching():
 
 
 def test_ordered():
-    #_test_forced_compilation()
     _test_compilation()
+    _test_forced_compilation()
     _test_compilation_caching()
 
 

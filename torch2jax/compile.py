@@ -27,13 +27,6 @@ def compile_and_import_module(force_recompile: bool = False) -> ModuleType:
     if str(build_dir) not in sys.path:
         sys.path.append(str(build_dir))
     try:
-        if force_recompile:
-            try:
-                import torch2jax_cpp as mod
-
-                assert False, "Cache not empty, but we are forcing recompilation"
-            except ImportError:
-                pass
         import torch2jax_cpp as mod  # noqa: F811
     except ImportError:
         print("Cache empty, we will compile the C++ extension component now...")
