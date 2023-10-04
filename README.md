@@ -269,3 +269,10 @@ the GPU.
 - [ ] (tests) setup automatic tests for multiple versions of Python, PyTorch and JAX
 - [ ] (feature) look into supporting in-place functions (support for output without copy)
 - [ ] (feature) support TPU
+
+# Related Work
+
+Our Python package wraps PyTorch code as-is (so custom code and mutating code
+will work!), but if you're looking for an automatic way to transcribe a
+supported subset of PyTorch code to JAX, take a look at
+[https://github.com/samuela/torch2jax/tree/main](https://github.com/samuela/torch2jax/tree/main).
