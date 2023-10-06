@@ -198,6 +198,10 @@ the GPU.
 
 # Changelog
 
+- version 0.4.7
+  - support for newest JAX (0.4.17) with backwards compatibility maintained
+  - compilation now delegated to python version subfolders for multi-python systems
+
 - version 0.4.6
   - bug-fix: cuda stream is now synchronized before and after a torch call explicitly to
     avoid reading unwritten data

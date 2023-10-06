@@ -1,5 +1,6 @@
 from typing import Callable
 from types import ModuleType
+from inspect import signature
 
 import torch
 import numpy as np
@@ -20,6 +21,12 @@ def _torch_call_lowering(
         mlir.ir.RankedTensorType.get(aval.shape, mlir.dtype_to_ir_type(aval.dtype))
         for aval in ctx.avals_out
     ]
+
+    # jax changed the name of the result types from `out_types` to `result_types` in 0.4.17
+    if "result_types" in signature(custom_call).parameters:
+        out_types_kw = "result_types"
+    else:
+        out_types_kw = "out_types"
     in_shapes = [list(mlir.ir.RankedTensorType(arg.type).shape) for arg in args]
     out_shapes = [list(x.shape) for x in ctx.avals_out]
     torch_call_in_dtypes = [dtype_j2m(cpp_module, np.dtype(x.dtype)) for x in ctx.avals_in]
@@ -39,8 +46,10 @@ def _torch_call_lowering(
         desc = np.array(desc).astype(np.int32)
         ret = custom_call(
             op_name,
-            out_types=out_types,
-            #operands=[mlir.ir_constant(z) for z in desc] + list(args),
+            **{
+                out_types_kw: out_types
+            },  # the out types can either be `out_types` or `result_types`
+            # operands=[mlir.ir_constant(z) for z in desc] + list(args),
             operands=[mlir.ir_constants(desc)[0]] + list(args),
             operand_layouts=[(0,)] + list(in_layouts),
             result_layouts=out_layouts,
@@ -58,7 +67,9 @@ def _torch_call_lowering(
         )
         ret = custom_call(
             op_name,
-            out_types=out_types,
+            **{
+                out_types_kw: out_types
+            },  # the out types can either be `out_types` or `result_types`
             operands=list(args),
             operand_layouts=in_layouts,
             result_layouts=out_layouts,
@@ -66,4 +77,7 @@ def _torch_call_lowering(
         )
     else:
         raise NotImplementedError(f"Unsupported platform: {platform}")
+    # the out types can either be `out_types` or `result_types` if the latter, then get `results`
+    if out_types_kw == "result_types":
+        ret = ret.results
     return (ret,) if len(out_layouts) == 1 else ret
