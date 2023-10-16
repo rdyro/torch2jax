@@ -1,0 +1,18 @@
+[project]
+name = "torch2jax"
+version = "0.4.7"
+authors = [
+  { name="Robert Dyro", email="robert.dyro@gmail.com" },
+]
+description = "Wrap your PyTorch for JAX! This package allows no-copy PyTorch calling from JAX under both eager execution and JIT."
+readme = "README.md"
+requires-python = ">=3.7"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+
+[project.urls]
+"Homepage" = "https://github.com/rdyro/torch2jax"
+"Bug Tracker" = "https://github.com/rdyro/torch2jax"
