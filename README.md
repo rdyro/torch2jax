@@ -198,6 +198,10 @@ the GPU.
 
 # Changelog
 
+- no version change
+  - added helper script `install_package_aliased.py` to automatically install
+    the package with a different name (to avoid a name conflict)
+
 - version 0.4.7
   - support for newest JAX (0.4.17) with backwards compatibility maintained
   - compilation now delegated to python version subfolders for multi-python systems
@@ -280,3 +284,12 @@ Our Python package wraps PyTorch code as-is (so custom code and mutating code
 will work!), but if you're looking for an automatic way to transcribe a
 supported subset of PyTorch code to JAX, take a look at
 [https://github.com/samuela/torch2jax/tree/main](https://github.com/samuela/torch2jax/tree/main).
+
+We realize that two packages named the same is not ideal. As we work towards a
+solution, here's a stop-gap solution. We offer a helper script to install the
+package with an alias name, installing our package using pip under a different
+name.
+
+1. `$ git clone https://github.com/rdyro/torch2jax.git` - clone this repo
+2. `$ python3 install_package_aliased.py new_name_torch2jax --install --test` - install and test this package under the name `new_name_torch2jax`
+3. you can now use this package under the name `new_name_torch2jax`
