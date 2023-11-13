@@ -33,12 +33,14 @@ if __name__ == "__main__":
     new_package_path = Path(__file__).parent.absolute() / new_name
     print(f"new_package_path: {new_package_path}")
 
+    old_name = current_config["project"]["name"]
+
     # remove the old generated package ####################################################
     if new_package_path.exists():
         rmtree(new_package_path)
 
     # copy files ##########################################################################
-    for path in ["torch2jax", "pyproject.toml", "setup.py", "tests"]:
+    for path in ["torch2jax", "pyproject.toml", "setup.py", "tests", "README.md", "images"]:
         src = root_path / path
         dest = new_package_path / path
         if src.is_file():
@@ -56,10 +58,33 @@ if __name__ == "__main__":
 
     # rewrite the setup.py file
     setup_py = Path(root_path / "setup.py").read_text()
-    new_setup_py = re.sub(
-        f"name=\"{current_config['project']['name']}\"", f'name="{new_name}"', setup_py
-    )
+    new_setup_py = re.sub(f'name="{old_name}"', f'name="{new_name}"', setup_py)
     Path(new_package_path / "setup.py").write_text(new_setup_py)
+
+    # rewrite the README.md file
+    README_md = Path(root_path / "README.md").read_text()
+    README_md = re.sub(
+        f"from {old_name}",
+        f"from {new_name}",
+        Path(new_package_path / "README.md").read_text(),
+    )
+    README_md = (
+        f"### **NOTE: `{new_name}` is a pip alias for `{old_name}`**\n\n"
+        + f"<br><br>\n\n---\n\n<br><br>\n\n{README_md}"
+    )
+    Path(new_package_path / "README.md").write_text(README_md)
+
+    # rewrite the pyproject.toml file
+    pyproject_toml = Path(root_path / "pyproject.toml").read_text()
+    new_pyproject_toml = re.sub(
+        f"name\s*=\s*\"{current_config['project']['name']}\"",
+        f'name = "{new_name}"',
+        pyproject_toml,
+    )
+    new_pyproject_toml = re.sub(
+        f"{current_config['project']['name']}\s*=", f"{new_name} = ", new_pyproject_toml
+    )
+    Path(new_package_path / "pyproject.toml").write_text(new_pyproject_toml)
 
     # rename the test files ###############################################################
     test_files = sum(
@@ -70,13 +95,13 @@ if __name__ == "__main__":
         [],
     )
     for test_file in test_files:
-        Path(test_file).write_text(
-            re.sub(
-                f"from {current_config['project']['name']}",
-                f"from {new_name}",
-                Path(test_file).read_text(),
-            )
+        test_file_text = Path(test_file).read_text()
+        test_file_text = re.sub(
+            f"from {current_config['project']['name']}",
+            f"from {new_name}",
+            test_file_text,
         )
+        Path(test_file).write_text(test_file_text)
 
     if args.install:
         # install the package ##################################################################

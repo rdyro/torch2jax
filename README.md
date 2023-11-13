@@ -30,12 +30,19 @@ Although I am unsure this functionality could be achieved without C++/CUDA, the
 C++ compilation is efficiently done using PyTorch's portable CUDA & C++
 compilation features, requiring minimal configuration.
 
-*Tested and developed with (python==3.9.13, torch==2.0.1 jax==0.4.8)*
-
 # Install
 
 ```bash
 $ pip install git+https://github.com/rdyro/torch2jax.git
+```
+
+`torch2jax` is now available on PyPI under the alias `wrap_torch2jax`:
+
+```bash
+$ pip install wrap-torch2jax
+$ # then
+$ python3
+$ >>> from wrap_torch2jax import torch2jax, torch2jax_with_vjp
 ```
 
 # Usage

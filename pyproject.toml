@@ -12,6 +12,15 @@ classifiers = [
     "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
 ]
+dependencies = [
+    "numpy",
+    "jax",
+    "torch",
+]
+
+[tool.setuptools.package-data]
+torch2jax = ["cpp/*"]
+
 
 [project.urls]
 "Homepage" = "https://github.com/rdyro/torch2jax"
