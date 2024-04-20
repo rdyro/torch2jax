@@ -1,6 +1,6 @@
 [project]
 name = "torch2jax"
-version = "0.4.7"
+version = "0.4.8"
 authors = [
   { name="Robert Dyro", email="robert.dyro@gmail.com" },
 ]
@@ -21,6 +21,9 @@ dependencies = [
 [tool.setuptools.package-data]
 torch2jax = ["cpp/*"]
 
+[build-system]
+requires = ["setuptools", "wheel", "toml"]
+build-backend = "setuptools.build_meta"
 
 [project.urls]
 "Homepage" = "https://github.com/rdyro/torch2jax"

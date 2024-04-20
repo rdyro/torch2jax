@@ -59,6 +59,7 @@ def compile_extension(force_recompile: bool = False) -> ModuleType:
             verbose=False,
             extra_cflags=extra_cflags,
             extra_cuda_cflags=extra_cuda_cflags,
+            extra_ldflags=["-lcuda" if torch.cuda.is_available() else ""],
         )
     for _name, _value in mod.cpu_registrations().items():
         xla_client.register_custom_call_target(_name, _value, platform="cpu")
