@@ -25,3 +25,16 @@ void gpu_apply_torch_call(cudaStream_t stream, void **buffers,
   // apply_torch_call<T>(buffers, d);
   apply_torch_call(buffers, d);
 }
+
+TorchCallDevice actual_cuda_device(const TorchCallDevice& device_desc, void* buffer) {
+#ifdef TORCH2JAX_WITH_CUDA
+    CUdevice device_ordinal;
+    CUresult err = cuPointerGetAttribute((void*)&device_ordinal, CU_POINTER_ATTRIBUTE_DEVICE_ORDINAL, (CUdeviceptr)buffer);
+    if (err != CUDA_SUCCESS) return device_desc;
+    TorchCallDevice new_device_desc = device_desc;
+    new_device_desc.index = device_ordinal;
+    return new_device_desc;
+#else
+  return device_desc;
+#endif
+}

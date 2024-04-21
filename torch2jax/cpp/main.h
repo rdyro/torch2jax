@@ -13,6 +13,11 @@
 #include <type_traits>
 #include <vector>
 
+#ifdef TORCH2JAX_WITH_CUDA
+#include <cuda.h>
+#include <cuda_runtime.h>
+#endif
+
 using namespace std;
 namespace py = pybind11;
 
@@ -141,6 +146,8 @@ torch::TensorOptions tensor_device(torch::TensorOptions opts,
 
 torch::TensorOptions tensor_options(int64_t dtype,
                                     const TorchCallDevice device);
+
+TorchCallDevice actual_cuda_device(const TorchCallDevice& device_desc, void* buffer);
 
 ////////////////////////////////////////////////////////////////////////////////
 

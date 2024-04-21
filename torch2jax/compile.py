@@ -10,6 +10,12 @@ import torch
 from torch.utils import cpp_extension
 from jax.lib import xla_client
 
+try:
+    from importlib.metadata import version
+except ModuleNotFoundError:
+    from importlib_metadata import version
+__version__ = version(__name__.split(".", 1)[0])
+
 CPP_MODULE_CACHED = None
 
 
@@ -19,7 +25,7 @@ def _generate_extension_version() -> str:
     py_abi_tag = sys.abiflags
     py_name_version = f"{py_impl}-{py_version}{py_abi_tag}"
     system_info = f"{platform.system().lower()}-{platform.machine()}"
-    return f"{py_name_version}-{system_info}"
+    return f"{py_name_version}-{system_info}-torch2jax-{__version__}"
 
 
 def compile_extension(force_recompile: bool = False) -> ModuleType:
@@ -31,7 +37,10 @@ def compile_extension(force_recompile: bool = False) -> ModuleType:
     build_dir = Path(f"~/.cache/torch2jax/{mod_version}").expanduser().absolute()
     if force_recompile and build_dir.exists():
         if build_dir.is_dir():
+            print(f"Removing the existing build directory at {build_dir}")
             rmtree(build_dir)
+            if build_dir.exists():
+                os.removedirs(build_dir)
         else:
             os.remove(build_dir)
     build_dir.mkdir(exist_ok=True, parents=True)
@@ -39,9 +48,10 @@ def compile_extension(force_recompile: bool = False) -> ModuleType:
     if str(build_dir) not in sys.path:
         sys.path.insert(0, str(build_dir))
     try:
+        assert not force_recompile
         mod = import_module("torch2jax_cpp")
         # import torch2jax_cpp as mod  # noqa: F811
-    except ImportError:
+    except (ImportError, AssertionError):
         print("Cache empty, we will compile the C++ extension component now...")
         source_prefix = Path(__file__).parent.absolute() / "cpp"
         source_list = ["main.cpp", "cpu_impl.cpp", "utils.cpp"]

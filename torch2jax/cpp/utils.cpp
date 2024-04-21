@@ -1,8 +1,4 @@
 #include "main.h"
-#ifdef TORCH2JAX_WITH_CUDA
-#include <cuda.h>
-#include <cuda_runtime.h>
-#endif
 
 torch::TensorOptions tensor_dtype(torch::TensorOptions opts,
                                   const int64_t dtype) {
@@ -136,19 +132,6 @@ int64_t deserialize_descriptor(DynamicTorchCallDescriptor &d,
 }
 
 
-TorchCallDevice _actual_cuda_device(const TorchCallDevice& device_desc, void* buffer) {
-#ifdef TORCH2JAX_WITH_CUDA
-    CUdevice device_ordinal;
-    CUresult err = cuPointerGetAttribute((void*)&device_ordinal, CU_POINTER_ATTRIBUTE_DEVICE_ORDINAL, (CUdeviceptr)buffer);
-    if (err != CUDA_SUCCESS) return device_desc;
-    TorchCallDevice new_device_desc = device_desc;
-    new_device_desc.index = device_ordinal;
-    return new_device_desc;
-#else
-  return device_desc;
-#endif
-}
-
 /// @brief The main torch call routine, wraps JAX arrays as Torch tensors and
 /// calls the torch fn
 /// @tparam T
@@ -183,7 +166,7 @@ void apply_torch_call(void **buffers, const DynamicTorchCallDescriptor &d) {
                                    (size_t)d.shapes_in[i].ndim);
     // T *buf = reinterpret_cast<T *>(buffers[i]);
 
-    TorchCallDevice device_desc = _actual_cuda_device(d.device, buffers[i]);
+    TorchCallDevice device_desc = actual_cuda_device(d.device, buffers[i]);
     //auto options = tensor_options(d.shapes_in[i].dtype, d.device);
     auto options = tensor_options(d.shapes_in[i].dtype, device_desc);
     // torch::Tensor tharray = torch::from_blob(buf, size, options);
@@ -207,7 +190,7 @@ void apply_torch_call(void **buffers, const DynamicTorchCallDescriptor &d) {
     auto size = torch::IntArrayRef((int64_t *)d.shapes_out[i].shape.data(),
                                    (size_t)d.shapes_out[i].ndim);
     // T *buf = reinterpret_cast<T *>(buffers[nargin + i]);
-    TorchCallDevice device_desc = _actual_cuda_device(d.device, buffers[d.nargin + i]);
+    TorchCallDevice device_desc = actual_cuda_device(d.device, buffers[d.nargin + i]);
     auto options = tensor_options(d.shapes_out[i].dtype, device_desc);
     // torch::Tensor tharray = torch::from_blob(buf, size, options);
     torch::Tensor tharray =
