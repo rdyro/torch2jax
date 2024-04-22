@@ -13,11 +13,6 @@
 #include <type_traits>
 #include <vector>
 
-#ifdef TORCH2JAX_WITH_CUDA
-#include <cuda.h>
-#include <cuda_runtime.h>
-#endif
-
 using namespace std;
 namespace py = pybind11;
 

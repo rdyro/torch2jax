@@ -88,8 +88,7 @@ def torch2jax_with_vjp(
     use_torch_vmap = use_torch_vjp if use_torch_vmap is None else use_torch_vmap
 
     if output_shapes is None:
-        with torch.no_grad():
-            outputs = torch_fn(*example_args)
+        outputs = torch_fn(*example_args)
         output_shapes = tree_map(
             lambda x: ShapeDtypeStruct(dtype=dtype_t2j(x.dtype), shape=x.shape), outputs
         )

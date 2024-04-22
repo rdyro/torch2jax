@@ -59,6 +59,7 @@ def compile_extension(force_recompile: bool = False) -> ModuleType:
         extra_cuda_cflags = None
 
         if torch.cuda.is_available():
+            source_list.remove("main.cpp")
             source_list.extend(["main.cu", "gpu_impl.cu"])
             extra_cflags.append("-DTORCH2JAX_WITH_CUDA")
             extra_cuda_cflags = ["-DTORCH2JAX_WITH_CUDA", "-O3"]
@@ -66,7 +67,7 @@ def compile_extension(force_recompile: bool = False) -> ModuleType:
             "torch2jax_cpp",
             sources=[source_prefix / fname for fname in source_list],
             build_directory=build_dir,
-            verbose=False,
+            verbose=True,
             extra_cflags=extra_cflags,
             extra_cuda_cflags=extra_cuda_cflags,
             extra_ldflags=["-lcuda" if torch.cuda.is_available() else ""],

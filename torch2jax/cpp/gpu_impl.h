@@ -2,6 +2,7 @@
 #define _GPU_IMPL_H
 
 #include <cuda.h>
+#include <cuda_runtime.h>
 
 #include "main.h"
 
