@@ -205,6 +205,11 @@ the GPU.
 
 # Changelog
 
+- version 0.4.10
+  - support for multiple GPUs, currently, all arguments must and the output
+    must be on the same GPU (but you can call the wrapped function with
+    different GPUs in separate calls)
+
 - no version change
   - added helper script `install_package_aliased.py` to automatically install
     the package with a different name (to avoid a name conflict)
@@ -280,7 +285,7 @@ the GPU.
 - [x] (feature) support mixed-precision arguments in inputs/outputs
 - [x] (feature) support defining VJP for the wrapped function (import the experimental functionality 
       from [jit-JAXFriendlyInterface](https://github.com/rdyro/jfi-JAXFriendlyInterface))
-- [ ] (tests) test how well device mapping works on multiple GPUs
+- [x] (tests) test how well device mapping works on multiple GPUs
 - [ ] (tests) setup automatic tests for multiple versions of Python, PyTorch and JAX
 - [ ] (feature) look into supporting in-place functions (support for output without copy)
 - [ ] (feature) support TPU
