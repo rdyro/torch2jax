@@ -39,7 +39,12 @@ def transfer(x: Array | Tensor, via: str = "dlpack", device: str = "cuda"):
 
 def j2t(x: Array, via: str = "dlpack") -> Tensor:
     try:
-        device = x.device()
+        devices = x.devices()
+        if len(devices) > 1:
+            msg = "You are attempting to convert a JAX array with multiple devices to a PyTorch tensor."
+            msg += " This is not supported"
+            raise RuntimeError(msg)
+        device = list(devices)[0]
     except ConcretizationTypeError:
         msg = "You are attempting to convert a non-concrete JAX array to a PyTorch tensor."
         msg += " This is not supported, since that JAX array does not contain any numbers."

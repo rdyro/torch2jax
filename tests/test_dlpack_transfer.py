@@ -37,8 +37,10 @@ def test_dlpack_transfer():
                 # torch -> jax
                 x1 = torch.randn(shape, device=device, dtype=dtype)
                 x2 = t2j(x1, via=via)
+                devices = x2.devices()
+                assert len(devices) == 1
                 assert (
-                    DEVICE_MAP[x2.device().platform] == DEVICE_MAP[device]
+                    DEVICE_MAP[list(devices)[0].platform] == DEVICE_MAP[device]
                     and x2.dtype == DTYPE_MAP[dtype]
                 )
                 err = np.linalg.norm(x1.cpu().numpy() - np.array(x2)) / np.linalg.norm(
@@ -79,10 +81,14 @@ def test_tree_dlpack_transfer():
     )
     args2 = tree_t2j(args)
     assert isinstance(args2["a"], int)
-    assert DEVICE_MAP[args2["b"].device().platform] == device
+    devices = args2["b"].devices()
+    assert len(devices) == 1
+    assert DEVICE_MAP[list(devices)[0].platform] == device
     assert isinstance(args2["c"], str)
     assert isinstance(args2["d"][1], Array)
-    assert DEVICE_MAP[args2["d"][1].device().platform] == device
+    devices = args2["d"][1].devices()
+    assert len(devices) == 1
+    assert DEVICE_MAP[list(devices)[0].platform] == device
     assert isinstance(args2["d"][2], Array)
 
 

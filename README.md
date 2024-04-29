@@ -209,6 +209,8 @@ the GPU.
   - support for multiple GPUs, currently, all arguments must and the output
     must be on the same GPU (but you can call the wrapped function with
     different GPUs in separate calls)
+  - fixed the coming depreciation in JAX deprecating `.device()` for
+    `.devices()`
 
 - no version change
   - added helper script `install_package_aliased.py` to automatically install
