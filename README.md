@@ -45,6 +45,10 @@ $ python3
 $ >>> from wrap_torch2jax import torch2jax, torch2jax_with_vjp
 ```
 
+Tested on:
+  - CPU: Python: `3.9 3.10 3.11 3.12` & JAX Versions `0.4.26 0.4.27 0.4.28 0.4.29 0.4.30 0.4.31`
+  - CUDA: Python `3.9 3.10 3.11 3.12` & JAX Versions `0.4.30 0.4.31`
+
 # Usage
 
 With a single output
@@ -204,6 +208,9 @@ the GPU.
   Python
 
 # Changelog
+
+- version 0.4.11
+  - compilation fixes and support for newer JAX versions
 
 - version 0.4.10
   - support for multiple GPUs, currently, all arguments must and the output

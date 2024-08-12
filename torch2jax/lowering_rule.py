@@ -49,8 +49,7 @@ def _torch_call_lowering(
             **{
                 out_types_kw: out_types
             },  # the out types can either be `out_types` or `result_types`
-            # operands=[mlir.ir_constant(z) for z in desc] + list(args),
-            operands=[mlir.ir_constants(desc)[0]] + list(args),
+            operands=[mlir.ir_constant(desc)] + list(args),
             operand_layouts=[(0,)] + list(in_layouts),
             result_layouts=out_layouts,
         )

@@ -208,3 +208,9 @@ void apply_torch_call(void **buffers, const DynamicTorchCallDescriptor &d) {
   }
 #endif
 }
+
+#ifndef TORCH2JAX_WITH_CUDA
+TorchCallDevice actual_cuda_device(const TorchCallDevice& device_desc, void* buffer) {
+  return device_desc;
+}
+#endif

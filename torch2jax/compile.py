@@ -8,6 +8,7 @@ from importlib import import_module
 
 import torch
 from torch.utils import cpp_extension
+import jax
 from jax.lib import xla_client
 
 try:
@@ -25,7 +26,7 @@ def _generate_extension_version() -> str:
     py_abi_tag = sys.abiflags
     py_name_version = f"{py_impl}-{py_version}{py_abi_tag}"
     system_info = f"{platform.system().lower()}-{platform.machine()}"
-    return f"{py_name_version}-{system_info}-torch2jax-{__version__}"
+    return f"{py_name_version}-{system_info}--jax-{jax.__version__}--torch2jax-{__version__}"
 
 
 def compile_extension(force_recompile: bool = False) -> ModuleType:
