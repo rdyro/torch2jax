@@ -17,7 +17,7 @@ def transfer(x: Array | Tensor, via: str = "dlpack", device: str = "cuda"):
     assert via in ("dlpack", "cpu")
     if isinstance(x, Array):
         if via == "dlpack":
-            return torch.utils.dlpack.from_dlpack(jax.dlpack.to_dlpack(x))
+            return torch.utils.dlpack.from_dlpack(x)
         else:
             if isinstance(device, JAXDevice):
                 torch_device = torch.device("cuda" if device.platform == "gpu" else "cpu")
@@ -26,7 +26,7 @@ def transfer(x: Array | Tensor, via: str = "dlpack", device: str = "cuda"):
             return torch.as_tensor(np.array(x), device=torch_device)
     else:
         if via == "dlpack":
-            return jax.dlpack.from_dlpack(torch.utils.dlpack.to_dlpack(x))
+            return jax.dlpack.from_dlpack(x)
         else:
             if isinstance(device, JAXDevice):
                 jax_device = device

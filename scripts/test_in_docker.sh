@@ -1,12 +1,12 @@
 #!/usr/bin/env zsh
 
-set -xe
+set -x
 
 #local_cache_dir="$(realpath $(pwd))/.cache/uv"
 local_cache_dir="$HOME/.cache/uv"
 
 python_ver=("3.9" "3.10" "3.11" "3.12")
-jax_ver=("0.4.26" "0.4.27" "0.4.28" "0.4.29" "0.4.30" "0.4.31")
+jax_ver=("0.4.26" "0.4.27" "0.4.29" "0.4.31" "0.4.33")
 
 # cpu tests ####################################################################
 image_name="t2j:cpu"
@@ -27,7 +27,7 @@ if [[ -z "$(command -v nvidia-smi)" ]]; then
   exit 0
 fi
 
-jax_ver=("0.4.30" "0.4.31")
+jax_ver=("0.4.30" "0.4.31" "0.4.33")
 
 image_name="t2j:cuda"
 docker build -t $image_name --build-arg=IMAGE_NAME="ghcr.io/nvidia/jax:base" .

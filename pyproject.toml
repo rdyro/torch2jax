@@ -1,6 +1,6 @@
 [project]
 name = "torch2jax"
-version = "0.4.11"
+version = "0.5.0"
 authors = [
   { name="Robert Dyro", email="robert.dyro@gmail.com" },
 ]
@@ -15,7 +15,7 @@ classifiers = [
 dependencies = [
     "numpy",
     "jax",
-    "torch",
+    #"torch",
 ]
 
 [tool.setuptools.package-data]

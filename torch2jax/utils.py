@@ -8,9 +8,9 @@ from types import ModuleType
 
 import torch
 from torch import Tensor
+import jax
+from jax import ShapeDtypeStruct
 from jax import numpy as jnp, Array
-from jax.core import ShapedArray
-from jax.tree_util import tree_flatten, tree_map
 
 
 def find_unique_id() -> int:
@@ -116,7 +116,7 @@ def guess_float_type(args: list[Array | Tensor]) -> jnp.dtype:
         "You appear to have provided mixed precision arguments to a function. "
         + "We cannot guess the output dtype."
     )
-    for arg in tree_flatten(args)[0]:
+    for arg in jax.tree.leaves(args):
         if has_assoc_dtype(arg) and _is_floating_point(arg):
             assert float_type is None or dtype_t2j(arg.dtype) == float_type, msg
             if float_type is None:
@@ -129,17 +129,20 @@ def guess_float_type(args: list[Array | Tensor]) -> jnp.dtype:
 def has_assoc_dtype(x: Any) -> bool:
     return hasattr(x, "dtype")
 
+def is_shape_desc(x):
+    return isinstance(x, (list, tuple)) and all(isinstance(y, int) for y in x)
 
 def normalize_shapes(shapes: Any, extra_args: Any | None = None) -> Any:
-    if not all(has_assoc_dtype(shape) for shape in tree_flatten(shapes)[0]):
+    if not all(has_assoc_dtype(shape) for shape in jax.tree.flatten(shapes)[0]):
         default_dtype = guess_float_type((shapes, extra_args))
     else:
         default_dtype = None
-    return tree_map(
-        lambda x: ShapedArray(x.shape, dtype_t2j(x.dtype))
+    return jax.tree.map(
+        lambda x: ShapeDtypeStruct(x.shape, dtype_t2j(x.dtype))
         if has_assoc_dtype(x)
-        else ShapedArray(x, default_dtype),
+        else ShapeDtypeStruct(x, default_dtype),
         shapes,
+        is_leaf=is_shape_desc
     )
 
 

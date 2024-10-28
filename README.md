@@ -209,6 +209,9 @@ the GPU.
 
 # Changelog
 
+- version 0.5.0
+  - updating to the new JAX ffi interface
+
 - version 0.4.11
   - compilation fixes and support for newer JAX versions
 

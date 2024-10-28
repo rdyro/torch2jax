@@ -6,6 +6,9 @@
 #include <stdio.h>
 #include <torch/extension.h>
 
+#include "xla/ffi/api/c_api.h"
+#include "xla/ffi/api/ffi.h"
+
 #include <cstddef>
 #include <cstdint>
 #include <stdexcept>
@@ -15,6 +18,7 @@
 
 using namespace std;
 namespace py = pybind11;
+namespace ffi = xla::ffi;
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -46,103 +50,29 @@ struct DynamicShapeDtype {
   int64_t dtype;
 };
 
-struct DynamicTorchCallDescriptor {
-  string id;
-  TorchCallDevice device;
-  int64_t nargin;
-  int64_t nargout;
-  vector<DynamicShapeDtype> shapes_in;
-  vector<DynamicShapeDtype> shapes_out;
-};
-
 ////////////////////////////////////////////////////////////////////////////////
-
-class DescriptorDataAccessor {
- public:
-  DescriptorDataAccessor(const int64_t *data64, const int32_t *data32)
-      : data64(data64), data32(data32) {}
-
-  int64_t get(int64_t i) const {
-    if (this->data64 != nullptr) {
-      return (this->data64)[i];
-    } else {
-      int64_t upper = (this->data32)[2 * i] & MASK32BIT;
-      int64_t lower = (this->data32)[2 * i + 1] & MASK32BIT;
-      return (upper << 32) | lower;
-    }
-  }
-
- private:
-  const int64_t *data64;
-  const int32_t *data32;
-};
-
-////////////////////////////////////////////////////////////////////////////////
-
-string tolower(string &s);
-
-// https://en.cppreference.com/w/cpp/numeric/bit_cast
-template <class To, class From>
-typename std::enable_if<sizeof(To) == sizeof(From) &&
-                            std::is_trivially_copyable<From>::value &&
-                            std::is_trivially_copyable<To>::value,
-                        To>::type
-bit_cast(const From &src) noexcept {
-  static_assert(std::is_trivially_constructible<To>::value,
-                "This implementation additionally requires destination type to "
-                "be trivially constructible");
-
-  To dst;
-  memcpy(&dst, &src, sizeof(To));
-  return dst;
-}
 
 /// @brief Converts a C++ function to a PyCapsule
 /// @return PyCapsule of the function
 template <typename T>
-py::capsule encapsulateFunction(T *fn) {
-  return py::capsule(bit_cast<void *>(fn), "xla._CUSTOM_CALL_TARGET");
+py::capsule EncapsulateFfiCall(T *fn) {
+  // This check is optional, but it can be helpful for avoiding invalid handlers.
+  static_assert(std::is_invocable_r_v<XLA_FFI_Error *, T, XLA_FFI_CallFrame *>,
+                "Encapsulated function must be and XLA FFI handler");
+  return py::capsule(reinterpret_cast<void *>(fn));
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 
-vector<int64_t> serialize_cpu_descriptor(int64_t id, int64_t device_type,
-                                         int64_t device_index,
-                                         vector<vector<int64_t>> &shape_in,
-                                         vector<int64_t> &dtype_in,
-                                         vector<vector<int64_t>> &shape_out,
-                                         vector<int64_t> &dtype_out);
-py::bytes serialize_gpu_descriptor(int64_t id, int64_t device_type,
-                                   int64_t device_index,
-                                   vector<vector<int64_t>> &shape_in,
-                                   vector<int64_t> &dtype_in,
-                                   vector<vector<int64_t>> &shape_out,
-                                   vector<int64_t> &dtype_out);
-int64_t deserialize_descriptor(DynamicTorchCallDescriptor &d,
-                               const DescriptorDataAccessor &data);
-
-////////////////////////////////////////////////////////////////////////////////
-
-// template <typename T>
-// torch::TensorOptions tensor_options(T *buffer, TorchCallDevice &device) {
-//   throw runtime_error(string("Buffer type not supported") +
-//                       string(typeid(T).name()) + string("\n"));
-//   return torch::TensorOptions();
-// }
-// torch::TensorOptions tensor_options(float *buffer,
-//                                     const TorchCallDevice device);
-// torch::TensorOptions tensor_options(double *buffer,
-//                                     const TorchCallDevice device);
-
 torch::TensorOptions tensor_dtype(torch::TensorOptions opts,
-                                  const int64_t dtype);
+                                  ffi::DataType dtype);
 torch::TensorOptions tensor_device(torch::TensorOptions opts,
                                    const TorchCallDevice device);
 
-torch::TensorOptions tensor_options(int64_t dtype,
+torch::TensorOptions tensor_options(ffi::DataType dtype,
                                     const TorchCallDevice device);
 
-TorchCallDevice actual_cuda_device(const TorchCallDevice& device_desc, void* buffer);
+TorchCallDevice actual_device(torch::DeviceType device_type, void* buffer);
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -153,6 +83,8 @@ TorchCallDevice actual_cuda_device(const TorchCallDevice& device_desc, void* buf
 /// @param d The Torch call descriptor, contains input & output shapes and
 /// device and call id
 // template <typename T>
-void apply_torch_call(void **buffers, const DynamicTorchCallDescriptor &d);
+void apply_torch_call(ffi::RemainingArgs buffers, ffi::RemainingRets, 
+    const string& fn_id, torch::DeviceType device_type);
+
 
 #endif

@@ -10,6 +10,7 @@ import torch
 from torch.utils import cpp_extension
 import jax
 from jax.lib import xla_client
+from jax.extend import ffi
 
 try:
     from importlib.metadata import version
@@ -55,15 +56,17 @@ def compile_extension(force_recompile: bool = False) -> ModuleType:
     except (ImportError, AssertionError):
         print("Cache empty, we will compile the C++ extension component now...")
         source_prefix = Path(__file__).parent.absolute() / "cpp"
-        source_list = ["main.cpp", "cpu_impl.cpp", "utils.cpp"]
-        extra_cflags = ["-O3"]
-        extra_cuda_cflags = None
+        source_list = ["main.cpp", "cpu_impl.cpp", "common.cpp"]
+        jax_ffi_flags = [f"-isystem {ffi.include_dir()}"]
+        extra_cflags = ["-O3"] + jax_ffi_flags
+        extra_cuda_cflags = jax_ffi_flags
 
         if torch.cuda.is_available():
             source_list.remove("main.cpp")
             source_list.extend(["main.cu", "gpu_impl.cu"])
             extra_cflags.append("-DTORCH2JAX_WITH_CUDA")
-            extra_cuda_cflags = ["-DTORCH2JAX_WITH_CUDA", "-O3"]
+            extra_cuda_cflags = ["-DTORCH2JAX_WITH_CUDA", "-O3"] + jax_ffi_flags
+
         mod = cpp_extension.load(
             "torch2jax_cpp",
             sources=[source_prefix / fname for fname in source_list],
@@ -74,10 +77,10 @@ def compile_extension(force_recompile: bool = False) -> ModuleType:
             extra_ldflags=["-lcuda" if torch.cuda.is_available() else ""],
         )
     for _name, _value in mod.cpu_registrations().items():
-        xla_client.register_custom_call_target(_name, _value, platform="cpu")
+        ffi.register_ffi_target(_name, _value, platform="cpu")
     if hasattr(mod, "gpu_registrations"):
         for _name, _value in mod.gpu_registrations().items():
-            xla_client.register_custom_call_target(_name, _value, platform="gpu")
+            ffi.register_ffi_target(_name, _value, platform="gpu")
     CPP_MODULE_CACHED = mod
     return mod
 

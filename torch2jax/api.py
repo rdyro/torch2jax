@@ -6,13 +6,16 @@ from warnings import warn
 
 import torch
 from torch import Tensor, Size
+
+import jax
 from jax import numpy as jnp
+from jax import ShapeDtypeStruct
 from jax.interpreters import mlir, xla, batching
 from jax import core, ShapeDtypeStruct
+from jax.extend import ffi
 
 # from jax.abstract_arrays import ShapedArray
-from jax.core import ShapedArray
-from jax.tree_util import tree_flatten, tree_unflatten, tree_structure, PyTreeDef, tree_map
+from jax.tree_util import PyTreeDef
 
 from .compile import compile_and_import_module
 from .lowering_rule import _torch_call_lowering
@@ -21,8 +24,8 @@ from .utils import find_unique_id, dtype_t2j, normalize_shapes
 
 def torch2jax_flat(
     fn: Callable,
-    example_args: list[Tensor] | tuple[Tensor] = None,
-    output_shapes: list[tuple[int]] | tuple[tuple[int]] = None,
+    example_args: list[Tensor] | tuple[Tensor] | None = None,
+    output_shapes: list[tuple[int]] | tuple[tuple[int]] | None = None,
     use_torch_vmap: bool = True,
 ) -> Callable:
     """Define a jit-compatible JAX function that calls a PyTorch function. Flat
@@ -41,8 +44,31 @@ def torch2jax_flat(
         Callable: Wrapped jit-compatible jax function.
     """
     # assert example_args is not None or output_shapes is not None or output_shapes_fn is not None
+    assert example_args is not None or output_shapes is not None
     cpp_module = compile_and_import_module()
     id = find_unique_id()
+
+    def torch_call_fn_():
+        args = getattr(torch, f"_torch2jax_args_{id:d}")
+        out = fn(*args)
+        return (out,) if isinstance(out, Tensor) else tuple(out)
+
+    setattr(torch, f"_torch2jax_fn_{id:d}", torch_call_fn_)
+
+    @jax.jit
+    def wrapped_flat_fn(*args_flat):
+        if example_args is not None:
+            with torch.no_grad():
+                out = fn(*example_args)
+            assert isinstance(out, (tuple, list, Tensor))
+            out = (out,) if isinstance(out, Tensor) else tuple(out)
+            outshapes = jax.tree.map(lambda x: ShapeDtypeStruct(x.shape, dtype_t2j(x.dtype)), out)
+        else:
+            outshapes = normalize_shapes(output_shapes, args_flat)
+        fn_ = ffi.ffi_call("torch_call", outshapes, vmap_method="sequential")
+        return fn_(*args_flat, fn_id=f"{id:d}")
+
+    return wrapped_flat_fn
 
     torch_prim = core.Primitive(f"torch_call_{id}")
     torch_prim.multiple_results = True
@@ -52,7 +78,7 @@ def torch2jax_flat(
     if output_shapes is not None:
         # call the pytorch function to infer shapes
         assert isinstance(output_shapes, (tuple, list)) and all(
-            isinstance(shape, (tuple, list, ShapedArray, ShapeDtypeStruct, Size))
+            isinstance(shape, (tuple, list, ShapeDtypeStruct, Size))
             or shape is None
             or hasattr(shape, "shape")
             for shape in output_shapes
@@ -72,7 +98,7 @@ def torch2jax_flat(
         out = (out,) if isinstance(out, Tensor) else tuple(out)
 
         def _torch_call_abstract(*args):
-            return tree_map(lambda x: ShapedArray(x.shape, dtype_t2j(x.dtype)), out)
+            return jax.tree.map(lambda x: ShapeDtypeStruct(x.shape, dtype_t2j(x.dtype)), out)
 
     torch_prim.def_abstract_eval(_torch_call_abstract)
     # inferring shapes #############################################################################
@@ -107,7 +133,7 @@ def torch2jax_flat(
             assert output_shapes is not None
             output_shapes_ = _torch_call_abstract(*args)
             output_shapes_vmap = [
-                ShapedArray((batch_size,) + tuple(shape.shape), shape.dtype)
+                ShapeDtypeStruct((batch_size,) + tuple(shape.shape), shape.dtype)
                 for shape in output_shapes_
             ]
             outaxes = (0 for _ in output_shapes_vmap)
@@ -132,14 +158,14 @@ def torch2jax_flat(
             for i in range(n):
                 args_ = [arg if axis is None else arg[i] for arg, axis in zip(args, axes)]
                 outputs = wrapped_fn(*args_)
-                output_flat, output_struct = tree_flatten(outputs)
+                output_flat, output_struct = jax.tree.flatten(outputs)
                 if output_lists is None:
                     output_lists = [[] for _ in output_flat]
                 for output_list, output in zip(output_lists, output_flat):
                     output_list.append(output)
             outputs = tuple([jnp.stack(output_list, 0) for output_list in output_lists])
-            outputs = tree_unflatten(output_struct, outputs)
-            return outputs, tree_unflatten(output_struct, (0 for _ in outputs))
+            outputs = jax.tree.unflatten(output_struct, outputs)
+            return outputs, jax.tree.unflatten(output_struct, (0 for _ in outputs))
 
     batching.primitive_batchers[torch_prim] = torch_call_batching
 
@@ -198,22 +224,22 @@ def torch2jax(
 
     if input_struct is None:
         if has_kw:
-            input_struct = tree_structure((example_args, example_kw))
+            input_struct = jax.tree.structure((example_args, example_kw))
         else:
-            input_struct = tree_structure(example_args)
+            input_struct = jax.tree.structure(example_args)
 
     if output_shapes is None:
         with torch.no_grad():
             output = fn(*example_args, **example_kw) if has_kw else fn(*example_args)
-        output_shapes, output_struct = tree_flatten(
-            tree_map(lambda x: ShapeDtypeStruct(x.shape, dtype_t2j(x.dtype)), output)
+        output_shapes, output_struct = jax.tree.flatten(
+            jax.tree.map(lambda x: ShapeDtypeStruct(x.shape, dtype_t2j(x.dtype)), output)
         )
 
     else:
-        output_shapes, output_struct = tree_flatten(output_shapes)
+        output_shapes, output_struct = jax.tree.flatten(output_shapes)
         msg = "Please provide all shapes as torch.Size or jax.ShapeDtypeStruct."
         assert all(
-            isinstance(x, (torch.Size, ShapedArray, ShapeDtypeStruct)) or hasattr(x, "shape")
+            isinstance(x, (torch.Size, ShapeDtypeStruct)) or hasattr(x, "shape")
             for x in output_shapes
         ), msg
 
@@ -221,12 +247,12 @@ def torch2jax(
     def flat_fn(*args_flat):
         nonlocal output_shapes, example_args
         if has_kw:
-            args, kw = tree_unflatten(input_struct, args_flat)
+            args, kw = jax.tree.unflatten(input_struct, args_flat)
             ret = fn(*args, **kw)
         else:
-            args = tree_unflatten(input_struct, args_flat)
+            args = jax.tree.unflatten(input_struct, args_flat)
             ret = fn(*args)
-        return tree_flatten(ret)[0]
+        return jax.tree.flatten(ret)[0]
 
     # define the wrapped function using flat interface
     wrapped_fn_flat = torch2jax_flat(
@@ -236,13 +262,13 @@ def torch2jax(
     if has_kw:
 
         def wrapped_fn(*args, **kw):
-            ret = wrapped_fn_flat(*tree_flatten((args, kw))[0])
-            return tree_unflatten(output_struct, ret)
+            ret = wrapped_fn_flat(*jax.tree.flatten((args, kw))[0])
+            return jax.tree.unflatten(output_struct, ret)
 
     else:
 
         def wrapped_fn(*args):
-            ret = wrapped_fn_flat(*tree_flatten(args)[0])
-            return tree_unflatten(output_struct, ret)
+            ret = wrapped_fn_flat(*jax.tree.flatten(args)[0])
+            return jax.tree.unflatten(output_struct, ret)
 
     return wrapped_fn
