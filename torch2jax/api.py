@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Callable, Any
 from functools import partial
 from warnings import warn
+from inspect import signature
 
 import torch
 from torch import Tensor, Size
@@ -48,8 +49,7 @@ def torch2jax_flat(
     cpp_module = compile_and_import_module()
     id = find_unique_id()
 
-    def torch_call_fn_():
-        args = getattr(torch, f"_torch2jax_args_{id:d}")
+    def torch_call_fn_(args: list[torch.Tensor]):
         out = fn(*args)
         return (out,) if isinstance(out, Tensor) else tuple(out)
 
@@ -65,8 +65,11 @@ def torch2jax_flat(
             outshapes = jax.tree.map(lambda x: ShapeDtypeStruct(x.shape, dtype_t2j(x.dtype)), out)
         else:
             outshapes = normalize_shapes(output_shapes, args_flat)
-        fn_ = ffi.ffi_call("torch_call", outshapes, vmap_method="sequential")
-        return fn_(*args_flat, fn_id=f"{id:d}")
+        if signature(ffi.ffi_call).return_annotation.startswith("Callable"):
+            fn_ = ffi.ffi_call("torch_call", outshapes, vmap_method="sequential")
+            return fn_(*args_flat, fn_id=f"{id:d}")
+        else:
+            return ffi.ffi_call("torch_call", outshapes, *args_flat, vectorized=False, fn_id=f"{id:d}")
 
     return wrapped_flat_fn
 

@@ -113,13 +113,10 @@ void apply_torch_call(ffi::RemainingArgs args, ffi::RemainingRets rets,
 
   // 2. bind the input tensors to the Python module in an identifiable place
   auto mod = py::module_::import("torch");
-  mod.attr((string("_torch2jax_args_") + fn_id).c_str()) = my_list;
   // 3. call the identifiable Python torch function which can find those
   // inputs
   py::tuple results =
-      mod.attr((string("_torch2jax_fn_") + fn_id).c_str())();
-
-  // py::gil_scoped_release release;
+      mod.attr((string("_torch2jax_fn_") + fn_id).c_str())(my_list);
 
   // 4. unwrap the output tensors and copy them to the output buffers
   for (int64_t i = 0; i < rets.size(); i++) {
