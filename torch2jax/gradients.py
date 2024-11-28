@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import traceback
 from typing import Callable, Any
-from functools import partial
+from functools import partial, lru_cache
 from warnings import warn
 
 import torch
@@ -15,6 +15,10 @@ from .utils import _is_floating_point, dtype_t2j, normalize_shapes
 
 
 ####################################################################################################
+
+@lru_cache(maxsize=None)
+def _warn_once(msg):
+    warn(msg)
 
 
 def torch2jax_with_vjp(
@@ -165,11 +169,11 @@ def torch2jax_with_vjp(
                     + " `torch2jax_with_vjp` if you wish to use this fallback explicitly."
                 )
                 msg = "\n".join(["#" * 80, msg, tb, "#" * 80])
-                warn(msg)
+                _warn_once(msg)
                 grads_computed = False
         if not grads_computed:
             if not use_torch_vjp:
-                warn("You are NOT using PyTorch's functional VJP. This is highly experimental.")
+                _warn_once("You are NOT using PyTorch's functional VJP. This is highly experimental.")
             [diff_arg_flat.requires_grad_(True) for diff_arg_flat in diff_args_flat]
             ret = sum(
                 torch.sum(g * r)
