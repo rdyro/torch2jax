@@ -5,6 +5,8 @@ from __future__ import annotations
 import random
 from typing import Any
 from types import ModuleType
+from warnings import warn
+from functools import lru_cache
 
 import torch
 from torch import Tensor
@@ -144,6 +146,12 @@ def normalize_shapes(shapes: Any, extra_args: Any | None = None) -> Any:
         shapes,
         is_leaf=is_shape_desc
     )
+
+@lru_cache
+def warn_once(msg, torch_fn):
+    del torch_fn  # used for proper hashing of context for lru_cache
+    warn(msg)
+
 
 
 ####################################################################################################

@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from typing import Callable, Any
 from functools import partial
-from warnings import warn
 from inspect import signature
 
 import torch
@@ -20,7 +19,7 @@ from jax.tree_util import PyTreeDef
 
 from .compile import compile_and_import_module
 from .lowering_rule import _torch_call_lowering
-from .utils import find_unique_id, dtype_t2j, normalize_shapes
+from .utils import find_unique_id, dtype_t2j, normalize_shapes, warn_once
 
 
 def torch2jax_flat(
@@ -145,7 +144,7 @@ def torch2jax_flat(
                 outaxes,
             )
         else:
-            warn(
+            warn_once(
                 "You are NOT using PyTorch's functional vmap. "
                 + "This is highly experimental and may be slower."
             )
