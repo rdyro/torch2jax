@@ -9,7 +9,6 @@ from importlib import import_module
 import torch
 from torch.utils import cpp_extension
 import jax
-from jax.lib import xla_client
 from jax.extend import ffi
 
 try:

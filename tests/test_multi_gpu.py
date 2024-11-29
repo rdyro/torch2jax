@@ -11,9 +11,7 @@ for path in paths:
     if str(path) not in sys.path:
         sys.path.append(str(path))
 
-from utils import jax_randn  # noqa: E402
 from torch2jax import torch2jax  # noqa: E402
-from torch2jax.compat import torch2jax as torch2jax_flat  # noqa: E402
 
 
 def test_multi_gpu_call():

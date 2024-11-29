@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import traceback
 from typing import Callable, Any
-from functools import partial, lru_cache
+from functools import partial
 
 import torch
 import jax
@@ -14,6 +14,7 @@ from .utils import _is_floating_point, dtype_t2j, normalize_shapes, warn_once
 
 
 ####################################################################################################
+
 
 def torch2jax_with_vjp(
     torch_fn: Callable,
@@ -87,12 +88,8 @@ def torch2jax_with_vjp(
 
     if output_shapes is None:
         outputs = torch_fn(*example_args)
-        output_shapes = tree_map(
-            lambda x: ShapeDtypeStruct(dtype=dtype_t2j(x.dtype), shape=x.shape), outputs
-        )
-    fn = torch2jax(
-        torch_fn, *example_args, output_shapes=output_shapes, use_torch_vmap=use_torch_vmap
-    )
+        output_shapes = tree_map(lambda x: ShapeDtypeStruct(dtype=dtype_t2j(x.dtype), shape=x.shape), outputs)
+    fn = torch2jax(torch_fn, *example_args, output_shapes=output_shapes, use_torch_vmap=use_torch_vmap)
 
     # if this we've reached the requested differentiation depth, refrain from defining a vjp rule ##
     if depth <= 0:
@@ -109,21 +106,16 @@ def torch2jax_with_vjp(
     # handle determining which arguments are nondifferentiable #####################################
     if nondiff_argnums is not None:
         # assume the user means the entire e.g., 2nd arg if they pass argnums=(2,)
-        nondiff_argnums = (
-            (nondiff_argnums,) if isinstance(nondiff_argnums, int) else tuple(nondiff_argnums)
-        )
+        nondiff_argnums = (nondiff_argnums,) if isinstance(nondiff_argnums, int) else tuple(nondiff_argnums)
         nondiff_mask = [
-            tree_map(lambda _: True, arg)
-            if (i in nondiff_argnums)
-            else tree_map(lambda _: False, arg)
+            tree_map(lambda _: True, arg) if (i in nondiff_argnums) else tree_map(lambda _: False, arg)
             for (i, arg) in enumerate(example_args)
         ]
     if nondiff_mask is not None:
         nondiff_mask_flat = tree_flatten(nondiff_mask)[0]
         assert len(nondiff_mask_flat) == len(example_args_flat), "`nondiff_mask` must match `args`"
         nondiff_mask_flat = [
-            (m or (not _is_floating_point(arg)))
-            for m, arg in zip(nondiff_mask_flat, example_args_flat)
+            (m or (not _is_floating_point(arg))) for m, arg in zip(nondiff_mask_flat, example_args_flat)
         ]
     else:
         nondiff_mask_flat = [not _is_floating_point(arg) for i, arg in enumerate(example_args_flat)]
@@ -147,9 +139,7 @@ def torch2jax_with_vjp(
         if use_torch_vjp:
             try:
                 diff_vjp_vals_flat = list(
-                    torch.func.vjp(
-                        partial(_torch_fn_diff_flat, all_args_flat=args_flat), *diff_args_flat
-                    )[1](gs_flat)
+                    torch.func.vjp(partial(_torch_fn_diff_flat, all_args_flat=args_flat), *diff_args_flat)[1](gs_flat)
                 )
                 grads_computed = True
             except RuntimeError:
@@ -171,18 +161,14 @@ def torch2jax_with_vjp(
             [diff_arg_flat.requires_grad_(True) for diff_arg_flat in diff_args_flat]
             ret = sum(
                 torch.sum(g * r)
-                for (g, r) in zip(
-                    gs_flat, _torch_fn_diff_flat(*diff_args_flat, all_args_flat=args_flat)
-                )
+                for (g, r) in zip(gs_flat, _torch_fn_diff_flat(*diff_args_flat, all_args_flat=args_flat))
             )
             diff_vjp_vals_flat = list(torch.autograd.grad(ret, diff_args_flat, create_graph=True))
 
         # reconstruct the full vjp including for nondiff arguments #################################
         vjp_vals_flat = []
         for arg, m in zip(args_flat, nondiff_mask_flat):
-            vjp_vals_flat.append(
-                (None if not use_zeros else 0 * arg) if m else diff_vjp_vals_flat.pop(0)
-            )
+            vjp_vals_flat.append((None if not use_zeros else 0 * arg) if m else diff_vjp_vals_flat.pop(0))
         return tree_unflatten(args_struct, vjp_vals_flat)
 
     # construct example outputs out of the bwd_fn (sensitivty wrt args) ############################
@@ -191,9 +177,7 @@ def torch2jax_with_vjp(
     next_output_shapes = tree_unflatten(
         args_struct,
         [
-            ShapeDtypeStruct(dtype=dtype_t2j(x.dtype), shape=x.shape)
-            if (not m or use_zeros)
-            else None
+            ShapeDtypeStruct(dtype=dtype_t2j(x.dtype), shape=x.shape) if (not m or use_zeros) else None
             for (x, m) in zip(example_args_flat, nondiff_mask_flat)
         ],
     )

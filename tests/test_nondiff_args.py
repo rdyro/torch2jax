@@ -5,7 +5,7 @@ from pathlib import Path
 
 import torch
 import jax
-from jax import numpy as jnp, Array, ShapeDtypeStruct
+from jax import numpy as jnp, ShapeDtypeStruct
 from jax.nn import softmax
 
 paths = [Path(__file__).absolute().parents[1], Path(__file__).absolute().parent]
@@ -14,9 +14,8 @@ for path in paths:
         sys.path.append(str(path))
 
 from torch2jax import torch2jax_with_vjp  # noqa: E402
-from torch2jax import j2t, t2j, tree_j2t, tree_t2j  # noqa: E402
-from torch2jax.utils import dtype_t2j, dtype_j2t  # noqa: E402
-from utils import jax_randn  # noqa: E402
+from torch2jax import tree_t2j  # noqa: E402
+from torch2jax.utils import dtype_t2j  # noqa: E402
 
 
 def test_int_args():

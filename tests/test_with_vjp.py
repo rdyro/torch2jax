@@ -15,7 +15,7 @@ for path in paths:
     if str(path) not in sys.path:
         sys.path.append(str(path))
 
-from torch2jax import torch2jax_with_vjp, tree_t2j, tree_j2t  # noqa: E402
+from torch2jax import torch2jax_with_vjp, tree_j2t  # noqa: E402
 from utils import jax_randn  # noqa: E402
 
 ####################################################################################################

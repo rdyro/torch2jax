@@ -31,9 +31,7 @@ def transfer(x: Array | Tensor, via: str = "dlpack", device: str = "cuda"):
             if isinstance(device, JAXDevice):
                 jax_device = device
             else:
-                jax_device = jax.devices(
-                    device.type if isinstance(device, torch.device) else device
-                )[0]
+                jax_device = jax.devices(device.type if isinstance(device, torch.device) else device)[0]
             return jax.device_put(jax.numpy.array(x.detach().cpu().numpy()), device=jax_device)
 
 

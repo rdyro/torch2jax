@@ -11,7 +11,7 @@ import jax
 from jax import numpy as jnp
 from jax import ShapeDtypeStruct
 from jax.interpreters import mlir, xla, batching
-from jax import core, ShapeDtypeStruct
+from jax import core
 from jax.extend import ffi
 
 # from jax.abstract_arrays import ShapedArray
@@ -80,17 +80,12 @@ def torch2jax_flat(
     if output_shapes is not None:
         # call the pytorch function to infer shapes
         assert isinstance(output_shapes, (tuple, list)) and all(
-            isinstance(shape, (tuple, list, ShapeDtypeStruct, Size))
-            or shape is None
-            or hasattr(shape, "shape")
+            isinstance(shape, (tuple, list, ShapeDtypeStruct, Size)) or shape is None or hasattr(shape, "shape")
             for shape in output_shapes
         )
 
         def _torch_call_abstract(*args):
-            output_shapes_ = [
-                Size(shape) if isinstance(shape, (list, tuple)) else shape
-                for shape in output_shapes
-            ]
+            output_shapes_ = [Size(shape) if isinstance(shape, (list, tuple)) else shape for shape in output_shapes]
             return normalize_shapes(output_shapes_, args)
 
     else:
@@ -135,8 +130,7 @@ def torch2jax_flat(
             assert output_shapes is not None
             output_shapes_ = _torch_call_abstract(*args)
             output_shapes_vmap = [
-                ShapeDtypeStruct((batch_size,) + tuple(shape.shape), shape.dtype)
-                for shape in output_shapes_
+                ShapeDtypeStruct((batch_size,) + tuple(shape.shape), shape.dtype) for shape in output_shapes_
             ]
             outaxes = (0 for _ in output_shapes_vmap)
             return (
@@ -145,8 +139,7 @@ def torch2jax_flat(
             )
         else:
             warn_once(
-                "You are NOT using PyTorch's functional vmap. "
-                + "This is highly experimental and may be slower."
+                "You are NOT using PyTorch's functional vmap. " + "This is highly experimental and may be slower."
             )
             assert all(axis is None or axis == 0 for axis in axes)
             if all(axis is None for axis in axes):
@@ -240,10 +233,7 @@ def torch2jax(
     else:
         output_shapes, output_struct = jax.tree.flatten(output_shapes)
         msg = "Please provide all shapes as torch.Size or jax.ShapeDtypeStruct."
-        assert all(
-            isinstance(x, (torch.Size, ShapeDtypeStruct)) or hasattr(x, "shape")
-            for x in output_shapes
-        ), msg
+        assert all(isinstance(x, (torch.Size, ShapeDtypeStruct)) or hasattr(x, "shape") for x in output_shapes), msg
 
     # define flattened version of the function (flat arguments and outputs)
     def flat_fn(*args_flat):
@@ -257,9 +247,7 @@ def torch2jax(
         return jax.tree.flatten(ret)[0]
 
     # define the wrapped function using flat interface
-    wrapped_fn_flat = torch2jax_flat(
-        flat_fn, output_shapes=output_shapes, use_torch_vmap=use_torch_vmap
-    )
+    wrapped_fn_flat = torch2jax_flat(flat_fn, output_shapes=output_shapes, use_torch_vmap=use_torch_vmap)
 
     if has_kw:
 

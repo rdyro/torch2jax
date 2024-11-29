@@ -18,9 +18,7 @@ from jax import numpy as jnp, Array
 def find_unique_id() -> int:
     while True:
         id = random.randint(0, 2**63)
-        if not hasattr(torch, f"_torch2jax_fn_{id}") and not hasattr(
-            torch, f"_torch2jax_args_{id}"
-        ):
+        if not hasattr(torch, f"_torch2jax_fn_{id}") and not hasattr(torch, f"_torch2jax_args_{id}"):
             return id
 
 
@@ -43,7 +41,7 @@ def dtype_t2j(dtype: torch.dtype) -> jnp.dtype:
         torch.int: jnp.int32,
         torch.int64: jnp.int64,
         torch.long: jnp.int64,
-        torch.bool: bool,
+        torch.bool: jnp.bool,
     }[dtype]
 
 
@@ -52,7 +50,7 @@ def dtype_j2t(dtype: jnp.dtype) -> torch.dtype:
     if isinstance(dtype, torch.dtype):
         return dtype
 
-    if dtype == bool:
+    if dtype == jnp.bool:
         return torch.bool
     elif dtype == jnp.uint8:
         return torch.uint8
@@ -76,7 +74,7 @@ def dtype_j2t(dtype: jnp.dtype) -> torch.dtype:
 
 def dtype_j2m(cpp_module: ModuleType, dtype: jnp.dtype) -> int:
     """Translate jax dtype to integer denoting dtype in the torch2jax cpp extension module."""
-    if dtype == bool:
+    if dtype == jnp.bool:
         return cpp_module.DATA_TYPE_BOOL
     elif dtype == jnp.uint8:
         return cpp_module.DATA_TYPE_UINT8
@@ -114,10 +112,7 @@ def _is_floating_point(x: Tensor | Array) -> bool:
 
 def guess_float_type(args: list[Array | Tensor]) -> jnp.dtype:
     float_type = None
-    msg = (
-        "You appear to have provided mixed precision arguments to a function. "
-        + "We cannot guess the output dtype."
-    )
+    msg = "You appear to have provided mixed precision arguments to a function. " + "We cannot guess the output dtype."
     for arg in jax.tree.leaves(args):
         if has_assoc_dtype(arg) and _is_floating_point(arg):
             assert float_type is None or dtype_t2j(arg.dtype) == float_type, msg
@@ -131,8 +126,10 @@ def guess_float_type(args: list[Array | Tensor]) -> jnp.dtype:
 def has_assoc_dtype(x: Any) -> bool:
     return hasattr(x, "dtype")
 
+
 def is_shape_desc(x):
     return isinstance(x, (list, tuple)) and all(isinstance(y, int) for y in x)
+
 
 def normalize_shapes(shapes: Any, extra_args: Any | None = None) -> Any:
     if not all(has_assoc_dtype(shape) for shape in jax.tree.flatten(shapes)[0]):
@@ -144,14 +141,14 @@ def normalize_shapes(shapes: Any, extra_args: Any | None = None) -> Any:
         if has_assoc_dtype(x)
         else ShapeDtypeStruct(x, default_dtype),
         shapes,
-        is_leaf=is_shape_desc
+        is_leaf=is_shape_desc,
     )
+
 
 @lru_cache
 def warn_once(msg, torch_fn):
     del torch_fn  # used for proper hashing of context for lru_cache
     warn(msg)
-
 
 
 ####################################################################################################

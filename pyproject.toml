@@ -15,7 +15,7 @@ classifiers = [
 dependencies = [
     "numpy",
     "jax",
-    #"torch",
+    "torch",
 ]
 
 [tool.setuptools.package-data]
@@ -28,3 +28,7 @@ build-backend = "setuptools.build_meta"
 [project.urls]
 "Homepage" = "https://github.com/rdyro/torch2jax"
 "Bug Tracker" = "https://github.com/rdyro/torch2jax"
+
+[tool.ruff]
+indent-width = 4
+line-length = 120
