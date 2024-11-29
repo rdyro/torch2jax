@@ -39,8 +39,8 @@ jobs:
       - uses: actions/checkout@v3
       - name: Install ninja
         run: |
-          DEBIAN_FRONTEND=noninteractive apt update -y
-          DEBIAN_FRONTEND=noninteractive apt install -y ninja-build coreutils
+          sudo DEBIAN_FRONTEND=noninteractive apt update -y
+          sudo DEBIAN_FRONTEND=noninteractive apt install -y ninja-build coreutils
       - name: Set up Python 3.11
         uses: actions/setup-python@v5
         with:
