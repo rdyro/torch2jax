@@ -77,12 +77,12 @@ if __name__ == "__main__":
     # rewrite the pyproject.toml file
     pyproject_toml = Path(root_path / "pyproject.toml").read_text()
     new_pyproject_toml = re.sub(
-        f"name\s*=\s*\"{current_config['project']['name']}\"",
+        f"name\\s*=\\s*\"{current_config['project']['name']}\"",
         f'name = "{new_name}"',
         pyproject_toml,
     )
     new_pyproject_toml = re.sub(
-        f"{current_config['project']['name']}\s*=", f"{new_name} = ", new_pyproject_toml
+        f"{current_config['project']['name']}\\s*=", f"{new_name} = ", new_pyproject_toml
     )
     Path(new_package_path / "pyproject.toml").write_text(new_pyproject_toml)
 
