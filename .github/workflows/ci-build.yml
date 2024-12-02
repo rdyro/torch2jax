@@ -20,6 +20,9 @@ concurrency:
 
 jobs:
   lint_and_typecheck:
+    strategy:
+      matrix:
+        python-version: ["3.11", "3.12"]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -27,12 +30,16 @@ jobs:
       - name: Set up Python 3.11
         uses: actions/setup-python@v5
         with:
-          python-version: 3.11
+          python-version: ${{ matrix.python-version }}
       - run: |
           python3 -m pip install -U ruff
           ruff format --diff torch2jax
           ruff check torch2jax
   pytest:
+    strategy:
+      matrix:
+        python-version: ["3.11", "3.12"]
+        jax-version: ["0.4.33", "0.4.35", "latest"]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -41,10 +48,10 @@ jobs:
         run: |
           sudo DEBIAN_FRONTEND=noninteractive apt update -y
           sudo DEBIAN_FRONTEND=noninteractive apt install -y ninja-build coreutils
-      - name: Set up Python 3.11
+      - name: Set up Python ${{ matrix.python-version }}
         uses: actions/setup-python@v5
         with:
-          python-version: 3.11
+          python-version: ${{ matrix.python-version }}
       - name: Get uv cache dir
         id: uv-cache
         run: |
@@ -61,8 +68,11 @@ jobs:
           [[ ! -d ~/.venv ]] && uv venv --seed ~/.venv
           source ~/.venv/bin/activate
           uv pip install pytest && pip install pytest
-          uv pip install -U jax torch
-          uv pip install -U .
+          if [[ ${{ matrix.jax-version }} == "latest" ]]; then
+            uv pip install -U torch jax .
+          else
+            uv pip install torch jax==${{ matrix.jax-version }} .
+          fi
       - name: Get extension path
         id: cpp-extension-cache
         run: |
