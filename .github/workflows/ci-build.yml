@@ -39,7 +39,7 @@ jobs:
     strategy:
       matrix:
         python-version: ["3.11", "3.12"]
-        jax-version: ["0.4.30", "0.4.35", "latest"]
+        jax-version: ["0.4.33", "0.4.35", "latest"]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -69,12 +69,10 @@ jobs:
           source ~/.venv/bin/activate
           uv pip install pytest && pip install pytest
           if [[ ${{ matrix.jax-version }} == "latest" ]]; then
-            uv pip install -U jax
+            uv pip install -U torch jax .
           else
-            uv pip install jax==${{ matrix.jax-version }}
+            uv pip install torch jax==${{ matrix.jax-version }} .
           fi
-          uv pip install -U torch
-          uv pip install -U .
       - name: Get extension path
         id: cpp-extension-cache
         run: |
