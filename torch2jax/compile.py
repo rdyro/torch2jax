@@ -9,7 +9,11 @@ from importlib import import_module
 import torch
 from torch.utils import cpp_extension
 import jax
-from jax.extend import ffi
+
+try:
+    from jax import ffi
+except ImportError:
+    from jax.extend import ffi
 
 try:
     from importlib.metadata import version

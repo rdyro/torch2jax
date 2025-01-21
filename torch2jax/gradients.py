@@ -8,9 +8,10 @@ import torch
 import jax
 from jax import ShapeDtypeStruct
 from jax.tree_util import tree_map, tree_flatten, tree_unflatten
+from jax.sharding import PartitionSpec as P
 
 from .api import torch2jax
-from .utils import _is_floating_point, dtype_t2j, normalize_shapes, warn_once
+from .utils import _is_floating, dtype_t2j, normalize_shapes, warn_once
 
 
 ####################################################################################################
@@ -25,36 +26,26 @@ def torch2jax_with_vjp(
     output_shapes: Any | None = None,
     use_zeros: bool = True,
     use_torch_vjp: bool = True,
-    use_torch_vmap: bool | None = None,
+    output_sharding_spec: P | None = None,
 ) -> Callable:
-    """Convert a torch function to a jax function and define a custom vjp rule
-    for it up to `depth` recursively deep.
+    """Convert a torch function to a jax function and define a custom vjp rule for it up to `depth` recursively deep.
 
     Args:
         torch_fn (Callable): Torch function to convert.
         *example_args (Any): Example arguments as tensors or torch-compatible args.
         depth (int, optional): Max allowed differentiation depth, this is cheap. Defaults to 1.
-        nondiff_argnums (list | tuple | None, optional): Which (whole) args to
-                                                         not differentiate. Defaults to None.
+        nondiff_argnums (list | tuple | None, optional): Which (whole) args to not differentiate. Defaults to None.
         nondiff_mask (Any | None, optional): Full arg matching mask. Defaults to None.
-        output_shapes (Any | None, optional): Output shapes out of the function,
-                                              if provided, we never call torch
-                                              function to infer them. Defaults
-                                              to None.
-        use_zeros (bool, optional): Whether to set gradients of non-diff args to
-                                    zeros or None. None does not appear to work
-                                    with JAX currently. Defaults to True.
-        use_torch_vjp (bool, optional): Whether to use custom vjp or the one from torch. False means
-                                        fallback to `torch.autograd.grad` for more compatibility.
-                                        Some older external library PyTorch code may need this
-                                        fallback. Defaults to True (i.e., do not use fallback).
-        use_torch_vmap (bool | None, optional): Whether to torch.vmap for batch or a dumb for loop.
-                                                Defaults to True for use_torch_vjp and False
-                                                otherwise.
+        output_shapes (Any | None, optional): Output shapes out of the function, if provided, we never call torch
+            function to infer them. Defaults to None.
+        use_zeros (bool, optional): Whether to set gradients of non-diff args to zeros or None. None does not appear to
+            work with JAX currently. Defaults to True.
+        use_torch_vjp (bool, optional): (Not supported, please use inside `shard_map`) Whether to use custom vjp or the
+            one from torch. False means fallback to `torch.autograd.grad` for more compatibility. Some older external
+            library PyTorch code may need this fallback. Defaults to True (i.e., do not use fallback).
 
     Returns:
         Callable: JIT-compatible JAX version of the torch function (VJP defined up to depth `depth`).
-
 
     Examples:
         >>> import torch, jax
@@ -83,13 +74,17 @@ def torch2jax_with_vjp(
         >>> dW.shape, db.shape
         ((20, 5), (5,))
     """
-
-    use_torch_vmap = use_torch_vjp if use_torch_vmap is None else use_torch_vmap
+    if output_sharding_spec is not None:
+        raise RuntimeError(
+            "`output_sharding_spec` not supported in `torch2jax_with_vjp`, it's somewhat difficult to automatically"
+            " define sharding spec for automatically defined vjp functions. As a work-around, please use this function"
+            " inside `shard_map` without specifying `output_sharding_spec` - you don't need to specify the specs there."
+        )
 
     if output_shapes is None:
         outputs = torch_fn(*example_args)
         output_shapes = tree_map(lambda x: ShapeDtypeStruct(dtype=dtype_t2j(x.dtype), shape=x.shape), outputs)
-    fn = torch2jax(torch_fn, *example_args, output_shapes=output_shapes, use_torch_vmap=use_torch_vmap)
+    fn = torch2jax(torch_fn, *example_args, output_shapes=output_shapes, output_sharding_spec=output_sharding_spec)
 
     # if this we've reached the requested differentiation depth, refrain from defining a vjp rule ##
     if depth <= 0:
@@ -114,11 +109,9 @@ def torch2jax_with_vjp(
     if nondiff_mask is not None:
         nondiff_mask_flat = tree_flatten(nondiff_mask)[0]
         assert len(nondiff_mask_flat) == len(example_args_flat), "`nondiff_mask` must match `args`"
-        nondiff_mask_flat = [
-            (m or (not _is_floating_point(arg))) for m, arg in zip(nondiff_mask_flat, example_args_flat)
-        ]
+        nondiff_mask_flat = [(m or (not _is_floating(arg))) for m, arg in zip(nondiff_mask_flat, example_args_flat)]
     else:
-        nondiff_mask_flat = [not _is_floating_point(arg) for i, arg in enumerate(example_args_flat)]
+        nondiff_mask_flat = [not _is_floating(arg) for i, arg in enumerate(example_args_flat)]
 
     # define two torch helper functions for computing the VJP ######################################
     def _torch_fn_diff_flat(*diff_args_flat, all_args_flat=None):
@@ -145,14 +138,12 @@ def torch2jax_with_vjp(
             except RuntimeError:
                 tb = traceback.format_exc()
                 msg = (
-                    "Somewhere in your PyTorch computation graph, a custom backward function is "
-                    + "defined in the old way (see "
-                    + "https://pytorch.org/docs/stable/notes/extending.html). This is only "
-                    + " experimentally supported in torch2jax. We will use a fallback based on "
-                    + "`torch.autograd.grad` instead. Please pass `use_torch_vjp=False` to "
-                    + " `torch2jax_with_vjp` if you wish to use this fallback explicitly."
+                    "Somewhere in your PyTorch computation graph, a custom backward function is defined in the old way"
+                    ' (see "https://pytorch.org/docs/stable/notes/extending.html"). This is only experimentally'
+                    " supported in torch2jax. We will use a fallback based on `torch.autograd.grad` instead. Please"
+                    " pass `use_torch_vjp=False` to `torch2jax_with_vjp` if you wish to use this fallback explicitly."
+                    f" Original error message:\n{tb}"
                 )
-                msg = "\n".join(["#" * 80, msg, tb, "#" * 80])
                 warn_once(msg, torch_fn)
                 grads_computed = False
         if not grads_computed:
@@ -188,7 +179,6 @@ def torch2jax_with_vjp(
         output_shapes=next_output_shapes,
         depth=depth - 1,
         use_torch_vjp=use_torch_vjp,
-        use_torch_vmap=use_torch_vmap,
     )
     # define the custom vjp using the fwd_fn and bwd_fn ############################################
     fn.defvjp(fwd_fn, bwd_fn)

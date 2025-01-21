@@ -1,5 +1,54 @@
 # Changelog
 
+- version 0.6.0
+  - proper multi-GPU support mostly with `shard_map` but also via `jax.jit` automatic sharding
+  - `shard_map` and automatic `jax.jit` device parallelization should work, but `pmap` doesn't work
+  - removed (deprecated)
+    - torch2jax_flat - use the more flexible torch2jax
+  - added input shapes validation - routines
+
+- version 0.5.0
+  - updating to the new JAX ffi interface
+
+- version 0.4.11
+  - compilation fixes and support for newer JAX versions
+
+- version 0.4.10
+  - support for multiple GPUs, currently, all arguments must and the output
+    must be on the same GPU (but you can call the wrapped function with
+    different GPUs in separate calls)
+  - fixed the coming depreciation in JAX deprecating `.device()` for
+    `.devices()`
+
+- no version change
+  - added helper script `install_package_aliased.py` to automatically install
+    the package with a different name (to avoid a name conflict)
+
+- version 0.4.7
+  - support for newest JAX (0.4.17) with backwards compatibility maintained
+  - compilation now delegated to python version subfolders for multi-python systems
+
+- version 0.4.6
+  - bug-fix: cuda stream is now synchronized before and after a torch call explicitly to
+    avoid reading unwritten data
+
+- version 0.4.5
+  - `torch2jax_with_vjp` now automatically selects `use_torch_vjp=False` if the `True` fails
+  - bug-fix: cuda stream is now synchronized after a torch call explicitly to
+    avoid reading unwritten data
+
+- version 0.4.4
+  - introduced a `use_torch_vjp` (defaulting to True) flag in `torch2jax_with_vjp` which 
+    can be set to False to use the old `torch.autograd.grad` for taking
+    gradients, it is the slower method, but is more compatible
+
+- version 0.4.3
+  - added a note in README about specifying input/output structure without instantiating data
+
+- version 0.4.2
+  - added `examples/input_output_specification.ipynb` showing how input/output
+  structure can be specified
+
 - version 0.4.1
   - bug-fix: in `torch2jax_with_vjp`, nondiff arguments were erroneously memorized
 

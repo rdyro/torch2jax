@@ -153,7 +153,6 @@ print(g_fn(x, y))
 
 # JIT works too
 print(jax.jit(g_fn)(x, y))
-
 ```
 
 Caveats: 
@@ -165,6 +164,109 @@ Caveats:
 - in line with JAX philosphy, PyTorch functions must be non-mutable,
   [torch.func](https://pytorch.org/docs/master/func.html) has a good description
   of how to convert e.g., PyTorch models, to non-mutable formulation
+
+# NEW: Performant multi-gpu (experimental)
+
+User feedback greatly appreciated, feel free to open an issue if you have any
+questions or are running into issues: [https://github.com/rdyro/torch2jax/issues/new](https://github.com/rdyro/torch2jax/issues/new).
+
+`torch2jax` should now support efficient multi-gpu calling. JAX, broadly,
+provides 3 main ways of calling multi-device code:
+  - `shard_map` - per-device view, the **recommended** way of using `torch2jax`
+    - supports sharded multi-GPU arrays called in parallel
+    - supports automatically defining gradients
+  - `jax.jit` - the jit function supports automatic computation on sharded
+  inputs; this is currently partially supported by providing the sharding spec 
+  of the output
+  - `jax.pmap` - (DOES NOT WORK) works somewhat like `shard_map`, but with
+  `jnp.stack` instead of `jnp.concatenate` over devices, please use `shard_map`
+  instead
+
+```python
+# Data-parallel model
+import functools
+import copy
+
+import torch
+import torch.nn as nn
+import jax
+from jax.experimental.shard_map import shard_map
+from jax.sharding import PartitionSpec as P, NamedSharding
+from torch2jax import torch2jax, torch2jax_with_vjp, tree_t2j
+
+
+def _setattr(mod, key, delim: str = "."):
+    if delim not in key:
+        setattr(mod, key, None)
+    else:
+        key, key_remaining = key.split(delim, 1)
+        _setattr(getattr(mod, key), key_remaining, delim=delim)
+
+
+def _strip_model(model):
+    for key in dict(model.named_parameters()).keys():
+        _setattr(model, key, delim=".")
+
+
+if __name__ == "__main__":
+    model = nn.Sequential(nn.Linear(1024 * 1024, 1024), nn.SiLU(), nn.Linear(1024, 16)).to("cuda:0")
+    params = dict(model.named_parameters())
+    [p.requires_grad_(False) for p in params.values()]
+    _strip_model(model)  # remove params from the model, leaving only a skeleton
+
+    def call_model_torch(x, params):
+        ys = []
+        for _ in range(30):
+            # functional_call uses the model in-place, we need a local copy
+            local_model_skeleton = copy.deepcopy(model)
+            ys.append(torch.func.functional_call(local_model_skeleton, params, x))
+        return sum(ys)
+
+    devices = jax.devices("cuda")
+    mesh = jax.make_mesh((len(devices),), P("x"), devices=devices)
+    params_sharding = NamedSharding(mesh, P())  # fully replicated
+    batch_sharding = NamedSharding(mesh, P("x", None))  # sharded along batch
+
+    x = jax.jit(
+        lambda: jax.random.normal(jax.random.key(0), (128, 1024 * 1024)),
+        out_shardings=batch_sharding,
+    )()
+
+    params = jax.tree.map(lambda p: jax.device_put(p, params_sharding), tree_t2j(params))
+    params_spec = jax.tree.map(lambda _: params_sharding.spec, params)
+
+    @jax.jit
+    @functools.partial(
+        shard_map,
+        mesh=mesh,
+        in_specs=(batch_sharding.spec, params_spec),
+        out_specs=batch_sharding.spec,
+        check_rep=False,
+    )
+    def fwd_fn(x, params):
+        return torch2jax_with_vjp(call_model_torch, x, params, output_shapes=x[:, :16])(x, params)
+
+    y = fwd_fn(x, params)
+
+    # OR using JIT (but without gradients)
+    fwd_fn = jax.jit(
+        torch2jax(
+            call_model_torch, x, params, output_shapes=x[:, :16], output_sharding_spec=P("x", None)
+        )
+    )
+
+    y = fwd_fn(x, params)
+```
+
+<p align="center">
+  <img src="images/data_parallel.png" style="width: 100%; max-width: 1000px; height: auto; max-height: 1000px;">
+  <p align="center">Fig: Overlapping torch calls on multiple devices (RTX A4000 x 4)</p>
+</p>
+
+
+> Note: `jax.vmap`'s semantics might indicate that it can compute on sharded
+arrays, it can work, but it is not recommend, and because of `torch2jax`'s
+implementation will likely be executed sequentially (and likely be slow).
 
 # Dealing with Changing Shapes
 
@@ -184,7 +286,6 @@ def compute(a, b, c):
 
 print(compute(a, b, a))
 ```
-
 
 # Timing Comparison vs `pure_callback`
 
@@ -208,6 +309,13 @@ the GPU.
   Python
 
 # Changelog
+
+- version 0.6.0
+  - proper multi-GPU support mostly with `shard_map` but also via `jax.jit` automatic sharding
+  - `shard_map` and automatic `jax.jit` device parallelization should work, but `pmap` doesn't work
+  - removed (deprecated)
+    - torch2jax_flat - use the more flexible torch2jax
+  - added input shapes validation - routines
 
 - version 0.5.0
   - updating to the new JAX ffi interface
@@ -298,7 +406,7 @@ the GPU.
 - [x] (feature) support defining VJP for the wrapped function (import the experimental functionality 
       from [jit-JAXFriendlyInterface](https://github.com/rdyro/jfi-JAXFriendlyInterface))
 - [x] (tests) test how well device mapping works on multiple GPUs
-- [ ] (tests) setup automatic tests for multiple versions of Python, PyTorch and JAX
+- [x] (tests) setup automatic tests for multiple versions of Python, PyTorch and JAX
 - [ ] (feature) look into supporting in-place functions (support for output without copy)
 - [ ] (feature) support TPU
 

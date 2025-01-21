@@ -67,7 +67,7 @@ jobs:
         run: |
           [[ ! -d ~/.venv ]] && uv venv --seed ~/.venv
           source ~/.venv/bin/activate
-          uv pip install pytest && pip install pytest
+          uv pip install pytest absl-py rich && pip install pytest
           if [[ ${{ matrix.jax-version }} == "latest" ]]; then
             uv pip install -U torch jax .
           else

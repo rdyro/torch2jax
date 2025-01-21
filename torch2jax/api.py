@@ -1,69 +1,128 @@
 from __future__ import annotations
 
+import math
+import functools
 from typing import Callable, Any
 from inspect import signature
 
 import torch
 from torch import Tensor
-
 import jax
 from jax import ShapeDtypeStruct
-from jax.extend import ffi
+from jax.util import safe_zip
 
-# from jax.abstract_arrays import ShapedArray
-from jax.tree_util import PyTreeDef
+# jax version-friendly way of importing the ffi module in jax
+try:
+    from jax import ffi
+except ImportError:
+    from jax.extend import ffi
+
+from jax.experimental.custom_partitioning import custom_partitioning
+from jax.sharding import NamedSharding, PartitionSpec, Mesh
 
 from .compile import compile_and_import_module
-from .utils import find_unique_id, dtype_t2j, normalize_shapes
+from .utils import find_unique_id, dtype_t2j, normalize_shapes, warn_once
 
 
-def torch2jax_flat(
+def _gen_ffi_call(outshapes):
+    if signature(ffi.ffi_call).return_annotation.startswith("Callable"):
+        fn_ = ffi.ffi_call("torch_call", outshapes, vmap_method="sequential")
+    else:
+        fn_ = lambda *args_flat, fn_id: ffi.ffi_call("torch_call", outshapes, *args_flat, vectorized=False, fn_id=fn_id)
+    return fn_
+
+
+def _torch2jax_flat(
     fn: Callable,
-    example_args: list[Tensor] | tuple[Tensor] | None = None,
-    output_shapes: list[tuple[int]] | tuple[tuple[int]] | None = None,
-    use_torch_vmap: bool = True,
+    input_shapes: list[jax.Array | Tensor | ShapeDtypeStruct] = None,
+    output_shapes: list[jax.Array | Tensor | ShapeDtypeStruct] = None,
+    output_sharding_spec: PartitionSpec | None = None,
 ) -> Callable:
     """Define a jit-compatible JAX function that calls a PyTorch function. Flat
     arguments and outputs.
 
     Args:
         fn (Callable): PyTorch function.
-        example_args (list[Tensor] | tuple[Tensor], optional): Example arguments. Defaults to None.
-        output_shapes (list[tuple[int]] | tuple[tuple[int]], optional): Output shapes (or shapes
-                                                                        with dtype).  Defaults to
-                                                                        None.
-        use_torch_vmap (bool, optional): Whether to use torch.vmap for jax batching rule.
-                                         Alternatively use a dumb for loop. Defaults to True.
-
+        example_args: Example arguments. Defaults to None.
+        output_shapes: Output shapes (or shapes with dtype). Defaults to None.
+        output_sharding_spec: jax.sharding.PartitionSpec specifying the sharding spec of the output, uses input mesh.
     Returns:
         Callable: Wrapped jit-compatible jax function.
     """
     # assert example_args is not None or output_shapes is not None or output_shapes_fn is not None
-    assert example_args is not None or output_shapes is not None
     _ = compile_and_import_module()
     id = find_unique_id()
 
     def torch_call_fn_(args: list[torch.Tensor]):
+        nonlocal output_shapes
         out = fn(*args)
         return (out,) if isinstance(out, Tensor) else tuple(out)
 
     setattr(torch, f"_torch2jax_fn_{id:d}", torch_call_fn_)
 
+    inshapes = None
+    if input_shapes is not None:
+        inshapes = jax.tree.map(lambda x: ShapeDtypeStruct(x.shape, dtype_t2j(x.dtype)), input_shapes)
+    assert output_shapes is not None, "`output_shapes` cannot be None"
+    outshapes = jax.tree.map(lambda x: ShapeDtypeStruct(x.shape, dtype_t2j(x.dtype)), output_shapes)
+
     @jax.jit
     def wrapped_flat_fn(*args_flat):
-        if example_args is not None:
-            with torch.no_grad():
-                out = fn(*example_args)
-            assert isinstance(out, (tuple, list, Tensor))
-            out = (out,) if isinstance(out, Tensor) else tuple(out)
-            outshapes = jax.tree.map(lambda x: ShapeDtypeStruct(x.shape, dtype_t2j(x.dtype)), out)
-        else:
-            outshapes = normalize_shapes(output_shapes, args_flat)
-        if signature(ffi.ffi_call).return_annotation.startswith("Callable"):
-            fn_ = ffi.ffi_call("torch_call", outshapes, vmap_method="sequential")
-            return fn_(*args_flat, fn_id=f"{id:d}")
-        else:
-            return ffi.ffi_call("torch_call", outshapes, *args_flat, vectorized=False, fn_id=f"{id:d}")
+        nonlocal inshapes, outshapes
+        fn_ = _gen_ffi_call(outshapes)
+
+        if output_sharding_spec is None:
+            fn_id = f"{id:d}"
+            return fn_(*args_flat, fn_id=fn_id)
+
+        @functools.partial(custom_partitioning, static_argnums=(0,))
+        def partitioned_f(fn_id: str, *args_flat):
+            assert fn_id is not None
+            return fn_(*args_flat, fn_id=fn_id)
+
+        def infer_sharding(fn_id, mesh, args_info, result_info):
+            del fn_id
+            assert len(args_info) > 0
+            result_sharding = jax.tree.map(lambda r, spec: NamedSharding(mesh, spec), result_info, output_sharding_spec)
+            return result_sharding
+
+        def fn_partition(fn_id, mesh: Mesh, args_info, result_info):
+            args_sharding = jax.tree.map(lambda x: x.sharding, args_info)
+            result_sharding = infer_sharding(fn_id, mesh, args_info, result_info)
+
+            def _partitioned_fn_(*args_flat, fn_id=fn_id):
+                axis_sizes = dict(safe_zip(mesh.axis_names, mesh.device_ids.shape))
+                for arg_info, arg in safe_zip(jax.tree.leaves(args_info), jax.tree.leaves(args_flat)):
+                    for s_all, s_part, axis in safe_zip(arg_info.shape, arg.shape, arg_info.sharding.spec):
+                        if axis is None:
+                            continue
+                        axes = axis if isinstance(axis, (list, tuple)) else [axis]
+                        div = math.prod(axis_sizes[ax] for ax in axes)
+                        assert s_part * div == s_all
+
+                def _map_outshape(outshape: jax.ShapeDtypeStruct, result_info, result_sharding):
+                    new_outshape = []
+                    spec = tuple(result_sharding.spec)
+                    assert len(spec) == len(outshape.shape)
+                    for s, axis in safe_zip(outshape.shape, spec):
+                        if axis is None:
+                            new_outshape.append(s)
+                        else:
+                            axes = axis if isinstance(axis, (list, tuple)) else [axis]
+                            div = math.prod(axis_sizes[ax] for ax in axes)
+                            new_outshape.append(s // div)
+                    return jax.ShapeDtypeStruct(new_outshape, dtype=outshape.dtype)
+
+                new_outshapes = jax.tree.map(_map_outshape, outshapes, result_info, result_sharding)
+                fn_part_ = _gen_ffi_call(new_outshapes)
+                return fn_part_(*args_flat, fn_id=fn_id)
+
+            return mesh, _partitioned_fn_, result_sharding, args_sharding
+
+        fn_id = f"{id:d}"
+
+        partitioned_f.def_partition(infer_sharding_from_operands=infer_sharding, partition=fn_partition)
+        return partitioned_f(fn_id, *args_flat)
 
     return wrapped_flat_fn
 
@@ -72,10 +131,8 @@ def torch2jax(
     fn: Callable,
     *example_args: Any,
     example_kw: Any | None = None,
-    example_kwargs: Any | None = None,
     output_shapes: Any = None,
-    input_struct: PyTreeDef | None = None,
-    use_torch_vmap: bool = True,
+    output_sharding_spec: PartitionSpec | None = None,
 ) -> Callable:
     """Define a jit-compatible JAX function that calls a PyTorch function.  Arbitrary nesting of
     arguments and outputs is supported.
@@ -83,13 +140,9 @@ def torch2jax(
     Args:
         fn (Callable): PyTorch function to wrap.
         *example_args (Any): Example arguments as tensors or torch-compatible args.
-        example_kw (Any | None, optional): Example keyword arguments. Defaults to None.
-        example_kwargs (Any | None, optional): Example keyword arguments. Defaults to None.
-        output_shapes (Any, optional): Output shapes or shapes + dtype struct. Defaults to None.
-        input_struct (PyTreeDef | None, optional): Input structure, which can be inferred from
-                                                   example arguments and keywords. Defaults to None.
-        use_torch_vmap (bool, optional): Whether to batch using torch.vmap or a dumb loop. Defaults to
-                                         True.
+        example_kw: Example keyword arguments. Defaults to None.
+        output_shapes: Output shapes or shapes + dtype struct. Defaults to None.
+        output_sharding_spec: jax.sharding.PartitionSpec specifying the sharding spec of the output, uses input mesh.
     Returns:
         Callable: JIT-compatible JAX function.
 
@@ -109,54 +162,99 @@ def torch2jax(
     """
 
     # check for presence of example_args and example_kw
-    msg = "Please provide either example_kw or example_kwargs, not both."
-    assert example_kw is None or example_kwargs is None, msg
-    if example_kwargs is not None:
-        example_kw = example_kwargs
     has_kw = example_kw is not None
 
-    if input_struct is None:
-        if has_kw:
-            input_struct = jax.tree.structure((example_args, example_kw))
-        else:
-            input_struct = jax.tree.structure(example_args)
-
-    if output_shapes is None:
-        with torch.no_grad():
-            output = fn(*example_args, **example_kw) if has_kw else fn(*example_args)
-        output_shapes, output_struct = jax.tree.flatten(
-            jax.tree.map(lambda x: ShapeDtypeStruct(x.shape, dtype_t2j(x.dtype)), output)
-        )
-
+    # find the input structure
+    if has_kw:
+        input_struct = jax.tree.structure((example_args, example_kw))
     else:
-        output_shapes, output_struct = jax.tree.flatten(output_shapes)
-        msg = "Please provide all shapes as torch.Size or jax.ShapeDtypeStruct."
-        assert all(isinstance(x, (torch.Size, ShapeDtypeStruct)) or hasattr(x, "shape") for x in output_shapes), msg
+        input_struct = jax.tree.structure(example_args)
 
     # define flattened version of the function (flat arguments and outputs)
     def flat_fn(*args_flat):
-        nonlocal output_shapes, example_args
         if has_kw:
             args, kw = jax.tree.unflatten(input_struct, args_flat)
             ret = fn(*args, **kw)
         else:
             args = jax.tree.unflatten(input_struct, args_flat)
             ret = fn(*args)
-        return jax.tree.flatten(ret)[0]
+        return jax.tree.leaves(ret)
+
+    example_inputs = (example_args, example_kw) if has_kw else example_args
+    input_shapes = jax.tree.map(lambda x: ShapeDtypeStruct(x.shape, dtype_t2j(x.dtype)), example_inputs)
+
+    # find the output structure
+    if output_shapes is None:
+        with torch.no_grad():
+            output = fn(*example_args, **example_kw) if has_kw else fn(*example_args)
+        output_shapes, output_struct = jax.tree.flatten(
+            jax.tree.map(lambda x: ShapeDtypeStruct(x.shape, dtype_t2j(x.dtype)), output)
+        )
+    else:
+        if not all(
+            isinstance(x, (torch.Size, ShapeDtypeStruct, jax.Array, torch.Tensor)) or hasattr(x, "shape")
+            for x in jax.tree.leaves(output_shapes)
+        ):
+            warn_once(
+                "Please provide all shapes as torch.Size or jax.ShapeDtypeStruct. We'll attempt to guess all"
+                " containers with only integer entries are shapes (for compatibility), but this is very error-prone."
+            )
+        output_shapes = normalize_shapes(output_shapes, extra_args=input_shapes)
+        output_shapes, output_struct = jax.tree.flatten(output_shapes)
+    if output_sharding_spec is not None:
+        output_sharding_spec_flat, output_sharding_struct = jax.tree.flatten(output_sharding_spec)
+        msg = (
+            "When providing `output_shading_spec` its structure must match the structure of `output_shapes`."
+            f"\nExpected: {output_struct}\n Actual:   {output_sharding_struct}"
+        )
+        assert jax.tree.structure(output_sharding_spec) == output_struct, msg
+    else:
+        output_sharding_spec_flat, output_sharding_struct = None, None
 
     # define the wrapped function using flat interface
-    wrapped_fn_flat = torch2jax_flat(flat_fn, output_shapes=output_shapes, use_torch_vmap=use_torch_vmap)
+    wrapped_fn_flat = _torch2jax_flat(
+        flat_fn, input_shapes=None, output_shapes=output_shapes, output_sharding_spec=output_sharding_spec_flat
+    )
 
-    if has_kw:
+    # define the actual wrapper function
+    def wrapped_fn(*args, **kw):
+        nonlocal fn, input_shapes, output_shapes
+        if not has_kw and len(kw) > 0:
+            raise RuntimeError("Keyword arguments not expected!")
+        if has_kw:
+            args = (args, kw)
+            mismatch_args_msg = (
+                "Provided (args, kw) =\n{} do not match the torch2jax function's expected input structure =\n{}"
+            )
+        else:
+            mismatch_args_msg = (
+                "Provided args =\n{} do not match the torch2jax function's expected input structure =\n{}"
+            )
+        if jax.tree.structure(args) != input_struct:
+            raise RuntimeError(mismatch_args_msg.format(args, input_struct))
 
-        def wrapped_fn(*args, **kw):
-            ret = wrapped_fn_flat(*jax.tree.flatten((args, kw))[0])
-            return jax.tree.unflatten(output_struct, ret)
-
-    else:
-
-        def wrapped_fn(*args):
-            ret = wrapped_fn_flat(*jax.tree.flatten(args)[0])
-            return jax.tree.unflatten(output_struct, ret)
+        common_mismatch_input_msg = (
+            f"\nActual = {args}\nExpected = {input_shapes}"
+            f"\nAre you perhaps using a JAX transformation like `shard_map`, `vmap` or `pmap`?"
+            " You can try defining torch2jax eagerly inside `shard_map` or defining an un-batched version for `pmap`."
+            " However, torch2jax is currently NOT WORKING with `pmap`, please use `shard_map`"
+            " or the experimental `auto_partitioning=True`"
+        )
+        if output_sharding_spec:
+            if not jax.tree.all(jax.tree.map(lambda x, y: getattr(x, "ndim", -1) == y.ndim, args, input_shapes)):
+                msg = (
+                    "Not all inputs to your torch2jax function match the dimensions of the expected input."
+                    + common_mismatch_input_msg
+                )
+                raise RuntimeError(msg)
+        else:
+            if not jax.tree.all(jax.tree.map(lambda x, y: getattr(x, "shape", [-1]) == y.shape, args, input_shapes)):
+                msg = (
+                    "Not all inputs to your torch2jax function match the shapes of the expected input."
+                    + common_mismatch_input_msg
+                )
+                raise RuntimeError(msg)
+        ret = wrapped_fn_flat(*jax.tree.leaves(args))
+        return jax.tree.unflatten(output_struct, ret)
 
     return wrapped_fn

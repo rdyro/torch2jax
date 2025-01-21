@@ -70,13 +70,14 @@ torch::TensorOptions tensor_options(ffi::DataType dtype,
 
 ////////////////////////////////////////////////////////////////////////////////
 
+
 /// @brief The main torch call routine, wraps JAX arrays as Torch tensors and
 /// calls the torch fn
 /// @param args input buffer
 /// @param rets output buffers
-/// device and call id
-// template <typename T>
-void apply_torch_call(ffi::RemainingArgs args, ffi::RemainingRets rets, 
+/// @param fn_id call fn id
+/// @param device_type the accelerator type, device id is detected from pointer
+void apply_torch_call(ffi::RemainingArgs args, ffi::RemainingRets rets,
     const string& fn_id, torch::DeviceType device_type) {
   /* ---------------------------------------------------------------------------
   The general strategy for the torch call is as follows:
@@ -84,19 +85,13 @@ void apply_torch_call(ffi::RemainingArgs args, ffi::RemainingRets rets,
     2. bind the input tensors to the Python module in an identifiable place
     3. call the identifiable Python torch function which can find those inputs
     4. unwrap the output tensors and copy them to the output buffers
-  ---------------------------------------------------------------------------
-*/
+  --------------------------------------------------------------------------- */
 
   py::gil_scoped_acquire acquire;
   py::list my_list;
 
-#ifdef TORCH2JAX_WITH_CUDA
-  if (device_type == torch::kCUDA) {
-    torch::cuda::synchronize();
-  }
-#endif
-
   // 1. wrap the input buffers as Torch tensors
+  set<int64_t> cuda_device_idxs_seen;
   for (int64_t i = 0; i < args.size(); i++) {
     auto arg = args.get<ffi::AnyBuffer>(i).value();
     auto dims = arg.dimensions();
@@ -105,20 +100,33 @@ void apply_torch_call(ffi::RemainingArgs args, ffi::RemainingRets rets,
 
     void* data_ptr = arg.untyped_data();
     TorchCallDevice device_desc = actual_device(device_type, (void*)data_ptr);
+    if (device_desc.type == torch::kCUDA) {
+      cuda_device_idxs_seen.insert(device_desc.index);
+    }
     auto options = tensor_options(arg.element_type(), device_desc);
 
     torch::Tensor tharray = torch::from_blob(data_ptr, size, options);
     my_list.append(THPVariable_Wrap(tharray));
   }
 
+  py::gil_scoped_acquire release;
+
+#ifdef TORCH2JAX_WITH_CUDA
+  if (device_type == torch::kCUDA) {
+    for (auto cuda_device_idx : cuda_device_idxs_seen) {
+      torch::cuda::synchronize(cuda_device_idx);
+    }
+  }
+#endif
+
   // 2. bind the input tensors to the Python module in an identifiable place
   auto mod = py::module_::import("torch");
-  // 3. call the identifiable Python torch function which can find those
-  // inputs
+  // 3. call the identifiable Python torch function which can find those inputs
   py::tuple results =
       mod.attr((string("_torch2jax_fn_") + fn_id).c_str())(my_list);
 
   // 4. unwrap the output tensors and copy them to the output buffers
+  cuda_device_idxs_seen.clear();
   for (int64_t i = 0; i < rets.size(); i++) {
     auto ret = *(rets.get<ffi::AnyBuffer>(i).value());
     auto dims = ret.dimensions();
@@ -127,6 +135,9 @@ void apply_torch_call(ffi::RemainingArgs args, ffi::RemainingRets rets,
 
     void* data_ptr = ret.untyped_data();
     TorchCallDevice device_desc = actual_device(device_type, (void*)data_ptr);
+    if (device_desc.type == torch::kCUDA) {
+      cuda_device_idxs_seen.insert(device_desc.index);
+    }
     auto options = tensor_options(ret.element_type(), device_desc);
 
     torch::Tensor tharray = torch::from_blob(data_ptr, size, options);
@@ -137,7 +148,9 @@ void apply_torch_call(ffi::RemainingArgs args, ffi::RemainingRets rets,
 
 #ifdef TORCH2JAX_WITH_CUDA
   if (device_type == torch::kCUDA) {
-    torch::cuda::synchronize();
+    for (auto cuda_device_idx : cuda_device_idxs_seen) {
+      torch::cuda::synchronize(cuda_device_idx);
+    }
   }
 #endif
 }
