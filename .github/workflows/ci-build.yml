@@ -41,7 +41,7 @@ jobs:
         python-version: ["3.11", "3.12"]
         jax-version: ["0.4.33", "0.4.35", "latest"]
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v3
       - name: Install ninja
