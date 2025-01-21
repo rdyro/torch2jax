@@ -43,6 +43,8 @@ def torch2jax_with_vjp(
         use_torch_vjp (bool, optional): (Not supported, please use inside `shard_map`) Whether to use custom vjp or the
             one from torch. False means fallback to `torch.autograd.grad` for more compatibility. Some older external
             library PyTorch code may need this fallback. Defaults to True (i.e., do not use fallback).
+        output_sharding_spec: (not supported) sharding spec of the output, use shard_map instead for a device-local
+            version of this function
 
     Returns:
         Callable: JIT-compatible JAX version of the torch function (VJP defined up to depth `depth`).

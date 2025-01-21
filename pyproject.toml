@@ -18,6 +18,15 @@ dependencies = [
     "torch",
 ]
 
+[project.optional-dependencies]
+docs = [
+  "mkdocs",
+  "mkdocs-material",
+  "mkdocstrings[python]",
+  "pymdown-extensions",
+  "mdx_truly_sane_lists",
+]
+
 [tool.setuptools.package-data]
 torch2jax = ["cpp/*"]
 
