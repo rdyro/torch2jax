@@ -1,6 +1,6 @@
 [project]
 name = "torch2jax"
-version = "0.5.0"
+version = "0.6.0"
 authors = [
   { name="Robert Dyro", email="robert.dyro@gmail.com" },
 ]
@@ -32,3 +32,9 @@ build-backend = "setuptools.build_meta"
 [tool.ruff]
 indent-width = 4
 line-length = 120
+
+[tool.ruff.lint]
+select = ["E", "F"]
+ignore = [
+  "E731",  # allow lambda-s instead of def-s
+]

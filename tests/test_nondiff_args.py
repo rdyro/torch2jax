@@ -51,9 +51,7 @@ def test_gradient():
     c = torch.randint(0, 100, size=(10,))
 
     for use_torch_vjp in [True, False]:
-        fn_jax = torch2jax_with_vjp(
-            fn, a, b, c, nondiff_argnums=(2,), depth=2, use_torch_vjp=use_torch_vjp
-        )
+        fn_jax = torch2jax_with_vjp(fn, a, b, c, nondiff_argnums=(2,), depth=2, use_torch_vjp=use_torch_vjp)
     a, b, c = tree_t2j((a, b, c))
     g = jax.grad(lambda *args: jnp.sum(fn_jax(*args)), argnums=(0, 1))(a, b, c)
 
@@ -64,9 +62,7 @@ def test_gradient():
     c = torch.randint(0, 100, size=(10,))
 
     for use_torch_vjp in [True, False]:
-        fn_jax = torch2jax_with_vjp(
-            fn, a, c, b, nondiff_argnums=(1,), depth=2, use_torch_vjp=use_torch_vjp
-        )
+        fn_jax = torch2jax_with_vjp(fn, a, c, b, nondiff_argnums=(1,), depth=2, use_torch_vjp=use_torch_vjp)
     a, b, c = tree_t2j((a, b, c))
     g = jax.grad(lambda *args: jnp.sum(fn_jax(*args)), argnums=(0, 2))(a, c, b)
 
@@ -82,9 +78,7 @@ def test_jacobian():
     ct = torch.randint(0, 100, size=(10,))
 
     for use_torch_vjp in [True, False]:
-        fn_jax = torch2jax_with_vjp(
-            fn, at, bt, ct, depth=2, use_torch_vjp=use_torch_vjp, use_torch_vmap=use_torch_vjp
-        )
+        fn_jax = torch2jax_with_vjp(fn, at, bt, ct, depth=2, use_torch_vjp=use_torch_vjp)
         a, b, c = tree_t2j((at, bt, ct))
         f = jax.jacobian(fn_jax)(a, b, c)
         err = jnp.linalg.norm(f - jax.jacobian(jax_fn)(a, b, c))

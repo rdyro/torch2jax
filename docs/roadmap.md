@@ -12,7 +12,7 @@
 - [x] (feature) support mixed-precision arguments in inputs/outputs
 - [x] (feature) support defining VJP for the wrapped function (import the experimental functionality 
       from [jit-JAXFriendlyInterface](https://github.com/rdyro/jfi-JAXFriendlyInterface))
-- [ ] (tests) test how well device mapping works on multiple GPUs
-- [ ] (tests) setup automatic tests for multiple versions of Python, PyTorch and JAX
+- [x] (tests) test how well device mapping works on multiple GPUs
+- [x] (tests) setup automatic tests for multiple versions of Python, PyTorch and JAX
 - [ ] (feature) look into supporting in-place functions (support for output without copy)
 - [ ] (feature) support TPU

@@ -40,9 +40,7 @@ def test_torch2jax_with_vjp_vjp_fallback():
         return x**2 + y**2
 
     expected_g_fn = jax.grad(lambda *args: jnp.sum(expected_f_fn(*args)), argnums=(0, 1))
-    expected_h_fn = jax.grad(
-        lambda *args: jnp.sum(expected_g_fn(*args)[0] + expected_g_fn(*args)[1]), argnums=(0, 1)
-    )
+    expected_h_fn = jax.grad(lambda *args: jnp.sum(expected_g_fn(*args)[0] + expected_g_fn(*args)[1]), argnums=(0, 1))
 
     xt, yt = torch.randn(shape), torch.randn(shape)
     device_list = ["cuda", "cpu"] if torch.cuda.is_available() else ["cpu"]
@@ -50,9 +48,7 @@ def test_torch2jax_with_vjp_vjp_fallback():
 
     wrap_jax_f_fn = torch2jax_with_vjp(torch_fn, xt, yt, depth=2)
     wrap_jax_g_fn = jax.grad(lambda x, y: jnp.sum(wrap_jax_f_fn(x, y)), argnums=(0, 1))
-    wrap_jax_h_fn = jax.grad(
-        lambda x, y: jnp.sum(wrap_jax_g_fn(x, y)[0] + wrap_jax_g_fn(x, y)[1]), argnums=(0, 1)
-    )
+    wrap_jax_h_fn = jax.grad(lambda x, y: jnp.sum(wrap_jax_g_fn(x, y)[0] + wrap_jax_g_fn(x, y)[1]), argnums=(0, 1))
 
     for device in device_list:
         for dtype in dtype_list:
@@ -68,18 +64,8 @@ def test_torch2jax_with_vjp_vjp_fallback():
 
             # test output structure #############################
             assert isinstance(f, Array)
-            assert (
-                isinstance(g, (tuple, list))
-                and len(g) == 2
-                and isinstance(g[0], Array)
-                and isinstance(g[1], Array)
-            )
-            assert (
-                isinstance(h, (tuple, list))
-                and len(h) == 2
-                and isinstance(h[0], Array)
-                and isinstance(h[1], Array)
-            )
+            assert isinstance(g, (tuple, list)) and len(g) == 2 and isinstance(g[0], Array) and isinstance(g[1], Array)
+            assert isinstance(h, (tuple, list)) and len(h) == 2 and isinstance(h[0], Array) and isinstance(h[1], Array)
 
             # test values not under JIT #########################
             err_f = jnp.linalg.norm(f - f_expected)

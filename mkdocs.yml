@@ -48,6 +48,8 @@ nav:
     - Examples:
       - BERT: 'examples/bert_example.md'
       - ResNet: 'examples/resnet_example.md'
+      - Data Parallel: 'examples/data_parallel.md'
     - Full API:
         - torch2jax: 'api/torch2jax.md'
-        - torch2jax_with_jvp: 'api/torch2jax_with_vjp.md'
+        - torch2jax_with_vjp: 'api/torch2jax_with_vjp.md'
+        - utils: 'api/utils.md'

@@ -34,6 +34,7 @@ namespace ffi = xla::ffi;
 #define DATA_TYPE_FLOAT16 6
 #define DATA_TYPE_FLOAT32 7
 #define DATA_TYPE_FLOAT64 8
+#define DATA_TYPE_BFLOAT16 9
 
 #define MASK32BIT 0xFFFFFFFF
 
