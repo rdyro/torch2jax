@@ -2,6 +2,7 @@ import sys
 from pathlib import Path
 from functools import partial
 
+from absl.testing import parameterized, absltest
 import torch
 import jax
 from jax import numpy as jnp
@@ -33,74 +34,75 @@ def _expected_fn(a, b, c):
     return jnp.sin(a + b), jnp.mean(jnp.cos(a - b)), a - b + c
 
 
-def test_with_jit():
-    device_list = ["cuda", "cpu"] if torch.cuda.is_available() else ["cpu"]
-    shapes = [(2, 3), (5, 10), (7,)]
-    for shape in shapes:
-        for dtype in [jnp.float32, jnp.float64]:
-            for device in device_list:
-                a = jax_randn(shape, dtype=dtype, device=device)
-                b = jax_randn(shape, dtype=dtype, device=device)
-                c = jax_randn(shape, dtype=dtype, device=device)
+class TestTransformUnderJIT(parameterized.TestCase):
+    @parameterized.product(
+        device=["cpu", "cuda"],
+        dtype=[jnp.float32, jnp.float64],
+        shape=[(2, 3), (5, 10), (7,)],
+    )
+    def test_with_jit(self, device, dtype, shape):
+        if device == "cuda" and not torch.cuda.is_available():
+            self.skipTest("Skipping CUDA tests when CUDA is not available")
+        a = jax_randn(shape, dtype=dtype, device=device)
+        b = jax_randn(shape, dtype=dtype, device=device)
+        c = jax_randn(shape, dtype=dtype, device=device)
 
-                ret = jax.jit(partial(_compute, with_grad=False))(a, b, c)
-                expected = _expected_fn(a, b, c)
-                err = sum([jnp.linalg.norm(v1 - v2) for (v1, v2) in zip(ret, expected)])
-                assert err < 1e-6
+        ret = jax.jit(partial(_compute, with_grad=False))(a, b, c)
+        expected = _expected_fn(a, b, c)
+        err = sum([jnp.linalg.norm(v1 - v2) for (v1, v2) in zip(ret, expected)])
+        assert err < 1e-6
 
+    @parameterized.product(
+        device=["cpu", "cuda"],
+        dtype=[jnp.float32, jnp.float64],
+        shape=[(2, 3), (5, 10), (7,)],
+    )
+    def test_without_jit(self, device, dtype, shape):
+        if device == "cuda" and not torch.cuda.is_available():
+            self.skipTest("Skipping CUDA tests when CUDA is not available")
+        a = jax_randn(shape, dtype=dtype, device=device)
+        b = jax_randn(shape, dtype=dtype, device=device)
+        c = jax_randn(shape, dtype=dtype, device=device)
 
-def test_without_jit():
-    device_list = ["cuda", "cpu"] if torch.cuda.is_available() else ["cpu"]
-    shapes = [(2, 3), (5, 10), (7,)]
-    for shape in shapes:
-        for dtype in [jnp.float32, jnp.float64]:
-            for device in device_list:
-                a = jax_randn(shape, dtype=dtype, device=device)
-                b = jax_randn(shape, dtype=dtype, device=device)
-                c = jax_randn(shape, dtype=dtype, device=device)
+        ret = partial(_compute, with_grad=False)(a, b, c)
+        expected = _expected_fn(a, b, c)
+        err = sum([jnp.linalg.norm(v1 - v2) for (v1, v2) in zip(ret, expected)])
+        assert err < 1e-6
 
-                ret = partial(_compute, with_grad=False)(a, b, c)
-                expected = _expected_fn(a, b, c)
-                err = sum([jnp.linalg.norm(v1 - v2) for (v1, v2) in zip(ret, expected)])
-                assert err < 1e-6
+    @parameterized.product(
+        device=["cpu"],
+        dtype=[jnp.float32, jnp.float64],
+        shape=[(2, 3), (5, 10), (7,)],
+    )
+    def test_grads_without_jit(self, device, dtype, shape):
+        if device == "cuda" and not torch.cuda.is_available():
+            self.skipTest("Skipping CUDA tests when CUDA is not available")
+        a = jax_randn(shape, dtype=dtype, device=device)
+        b = jax_randn(shape, dtype=dtype, device=device)
+        c = jax_randn(shape, dtype=dtype, device=device)
 
+        ret = jax.grad(lambda a, b, c: partial(_compute, with_grad=True)(a, b, c)[1], (0, 1, 2))(a, b, c)
+        expected = jax.grad(lambda a, b, c: _expected_fn(a, b, c)[1], (0, 1, 2))(a, b, c)
+        err = sum([jnp.linalg.norm(v1 - v2) for (v1, v2) in zip(ret, expected)])
+        assert err < 1e-6
 
-def test_grads_without_jit():
-    device_list = ["cuda", "cpu"] if torch.cuda.is_available() else ["cpu"]
-    shapes = [(2, 3), (5, 10), (7,)]
-    for shape in shapes:
-        for dtype in [jnp.float32, jnp.float64]:
-            for device in device_list:
-                a = jax_randn(shape, dtype=dtype, device=device)
-                b = jax_randn(shape, dtype=dtype, device=device)
-                c = jax_randn(shape, dtype=dtype, device=device)
+    @parameterized.product(
+        device=["cpu", "cuda"],
+        dtype=[jnp.float32, jnp.float64],
+        shape=[(2, 3), (5, 10), (7,)],
+    )
+    def test_grads_with_jit(self, device, dtype, shape):
+        if device == "cuda" and not torch.cuda.is_available():
+            self.skipTest("Skipping CUDA tests when CUDA is not available")
+        a = jax_randn(shape, dtype=dtype, device=device)
+        b = jax_randn(shape, dtype=dtype, device=device)
+        c = jax_randn(shape, dtype=dtype, device=device)
 
-                ret = jax.grad(lambda a, b, c: partial(_compute, with_grad=True)(a, b, c)[1], (0, 1, 2))(a, b, c)
-                expected = jax.grad(lambda a, b, c: _expected_fn(a, b, c)[1], (0, 1, 2))(a, b, c)
-                err = sum([jnp.linalg.norm(v1 - v2) for (v1, v2) in zip(ret, expected)])
-                assert err < 1e-6
-
-
-def test_grads_with_jit():
-    device_list = ["cuda", "cpu"] if torch.cuda.is_available() else ["cpu"]
-    shapes = [(2, 3), (5, 10), (7,)]
-    for shape in shapes:
-        for dtype in [jnp.float32, jnp.float64]:
-            for device in device_list:
-                a = jax_randn(shape, dtype=dtype, device=device)
-                b = jax_randn(shape, dtype=dtype, device=device)
-                c = jax_randn(shape, dtype=dtype, device=device)
-
-                ret = jax.jit(jax.grad(lambda a, b, c: partial(_compute, with_grad=True)(a, b, c)[1], (0, 1, 2)))(
-                    a, b, c
-                )
-                expected = jax.grad(lambda a, b, c: _expected_fn(a, b, c)[1], (0, 1, 2))(a, b, c)
-                err = sum([jnp.linalg.norm(v1 - v2) for (v1, v2) in zip(ret, expected)])
-                assert err < 1e-6
+        ret = jax.jit(jax.grad(lambda a, b, c: partial(_compute, with_grad=True)(a, b, c)[1], (0, 1, 2)))(a, b, c)
+        expected = jax.grad(lambda a, b, c: _expected_fn(a, b, c)[1], (0, 1, 2))(a, b, c)
+        err = sum([jnp.linalg.norm(v1 - v2) for (v1, v2) in zip(ret, expected)])
+        assert err < 1e-6
 
 
 if __name__ == "__main__":
-    test_with_jit()
-    test_without_jit()
-    test_grads_with_jit()
-    test_grads_without_jit()
+    absltest.main()
