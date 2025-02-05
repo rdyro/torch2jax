@@ -197,7 +197,8 @@ def torch2jax(
         ):
             warn_once(
                 "Please provide all shapes as torch.Size or jax.ShapeDtypeStruct. We'll attempt to guess all"
-                " containers with only integer entries are shapes (for compatibility), but this is very error-prone."
+                " containers with only integer entries are shapes (for compatibility), but this is very error-prone.",
+                fn,
             )
         output_shapes = normalize_shapes(output_shapes, extra_args=input_shapes)
         output_shapes, output_struct = jax.tree.flatten(output_shapes)
