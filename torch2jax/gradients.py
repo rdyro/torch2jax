@@ -55,7 +55,7 @@ def torch2jax_with_vjp(
         >>> # let's define the torch function and create some example arguments
         >>> torch_fn = lambda x, y: torch.nn.CrossEntropyLoss()(x, y)
         >>> xt, yt = torch.randn(10, 5), torch.randint(0, 5, (10,))
-        >>> # we can not convert the function to jax using the torch fn and example args
+        >>> # we can now convert the function to jax using the torch fn and example args
         >>> jax_fn = torch2jax_with_vjp(torch_fn, xt, yt)
         >>> jax_fn = jax.jit(jax_fn) # we can jit it too
         >>> # let's convert the arguments to JAX arrays and call the function
