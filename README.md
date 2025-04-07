@@ -310,6 +310,10 @@ the GPU.
 
 # Changelog
 
+- version 0.6.1
+  - added `vmap_method=` support for experimental pytorch-side batching support,
+    see [https://github.com/rdyro/torch2jax/issues/28](https://github.com/rdyro/torch2jax/issues/28)
+
 - version 0.6.0
   - proper multi-GPU support mostly with `shard_map` but also via `jax.jit` automatic sharding
   - `shard_map` and automatic `jax.jit` device parallelization should work, but `pmap` doesn't work

@@ -27,6 +27,7 @@ def torch2jax_with_vjp(
     use_zeros: bool = True,
     use_torch_vjp: bool = True,
     output_sharding_spec: P | None = None,
+    vmap_method: str = "sequential",
 ) -> Callable:
     """Convert a torch function to a jax function and define a custom vjp rule for it up to `depth` recursively deep.
 
@@ -45,7 +46,12 @@ def torch2jax_with_vjp(
             library PyTorch code may need this fallback. Defaults to True (i.e., do not use fallback).
         output_sharding_spec: (not supported) sharding spec of the output, use shard_map instead for a device-local
             version of this function
+        vmap_method: batching method, see
+            [https://docs.jax.dev/en/latest/ffi.html#batching-with-vmap](https://docs.jax.dev/en/latest/ffi.html#batching-with-vmap)
 
+            NOTE: only vmap_method="sequntial" is supported non-experimentally
+
+            NOTE: try "expand_dims", "broadcast_all" if you want to experiment with pytorch-side batching
     Returns:
         Callable: JIT-compatible JAX version of the torch function (VJP defined up to depth `depth`).
 
@@ -86,7 +92,13 @@ def torch2jax_with_vjp(
     if output_shapes is None:
         outputs = torch_fn(*example_args)
         output_shapes = tree_map(lambda x: ShapeDtypeStruct(dtype=dtype_t2j(x.dtype), shape=x.shape), outputs)
-    fn = torch2jax(torch_fn, *example_args, output_shapes=output_shapes, output_sharding_spec=output_sharding_spec)
+    fn = torch2jax(
+        torch_fn,
+        *example_args,
+        output_shapes=output_shapes,
+        output_sharding_spec=output_sharding_spec,
+        vmap_method=vmap_method,
+    )
 
     # if this we've reached the requested differentiation depth, refrain from defining a vjp rule ##
     if depth <= 0:
@@ -181,6 +193,7 @@ def torch2jax_with_vjp(
         output_shapes=next_output_shapes,
         depth=depth - 1,
         use_torch_vjp=use_torch_vjp,
+        vmap_method=vmap_method,
     )
     # define the custom vjp using the fwd_fn and bwd_fn ############################################
     fn.defvjp(fwd_fn, bwd_fn)
