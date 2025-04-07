@@ -2,13 +2,17 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
+from inspect import signature
 
 from absl.testing import parameterized, absltest
 import torch
 import jax
 from jax import numpy as jnp
-from jax import random
 from jax.scipy.linalg import cho_factor, cho_solve
+try:
+    from jax import ffi
+except ImportError:
+    from jax.extend import ffi
 
 paths = [Path(__file__).absolute().parents[1], Path(__file__).absolute().parent]
 for path in paths:
@@ -50,16 +54,16 @@ class TestVmap(parameterized.TestCase):
     def test_simple_vmap(self, device, dtype):
         if device == "cuda" and not torch.cuda.is_available():
             self.skipTest("Skipping CUDA tests when CUDA is not available")
+        if not signature(ffi.ffi_call).return_annotation.startswith("Callable"):
+            self.skipTest("ffi.ffi_call is too old")
 
         device = jax.devices(device)[0]
-        keys = iter(random.split(random.key(17), 1024))
 
         torch_counter = 0
 
         def torch_fn(x):
             nonlocal torch_counter
             torch_counter += 1
-            print(f"torch_counter: {torch_counter}")
             return 2 * x
 
         x = jax_randn((1024,), device=device, dtype=jnp.float32)
