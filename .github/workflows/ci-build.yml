@@ -10,6 +10,8 @@ on:
     branches:
       - main
   workflow_dispatch:
+  schedule:
+    - cron: "0 14 * * 6"
 
 permissions:
   contents: read  # to fetch code
