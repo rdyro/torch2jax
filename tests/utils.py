@@ -2,7 +2,7 @@ import jax
 import time
 from jax.lib import xla_extension
 
-Device = xla_extension.Device
+Device = jax.Device if hasattr(jax, "Device") else xla_extension.Device
 
 
 def jax_randn(shape, device, dtype):

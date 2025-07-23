@@ -12,7 +12,7 @@ try:
 except ImportError:
     from jax.core import ConcretizationTypeError
 
-JAXDevice = jax.lib.xla_extension.Device
+JAXDevice = jax.Device if hasattr(jax, "Device") else jax.lib.xla_extension.Device
 
 
 def _transfer(x: Array | Tensor, via: str = "dlpack", device: str = "cuda"):

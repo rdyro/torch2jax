@@ -9,7 +9,12 @@ import torch
 from torch import Tensor
 import jax
 from jax import ShapeDtypeStruct
-from jax.util import safe_zip
+try:
+    from jax.util import safe_zip
+except ImportError:
+    safe_zip = zip
+
+jax.config.update('jax_use_shardy_partitioner', False)  # TODO: temporary workaround for JAX 0.7.0
 
 # jax version-friendly way of importing the ffi module in jax
 try:
