@@ -9,12 +9,11 @@ import torch
 from torch import Tensor
 import jax
 from jax import ShapeDtypeStruct
+
 try:
     from jax.util import safe_zip
 except ImportError:
     safe_zip = zip
-
-jax.config.update('jax_use_shardy_partitioner', False)  # TODO: temporary workaround for JAX 0.7.0
 
 # jax version-friendly way of importing the ffi module in jax
 try:
@@ -27,6 +26,8 @@ from jax.sharding import NamedSharding, PartitionSpec, Mesh
 
 from .compile import compile_and_import_module
 from .utils import find_unique_id, dtype_t2j, normalize_shapes, warn_once
+
+jax.config.update("jax_use_shardy_partitioner", False)  # TODO: temporary workaround for JAX 0.7.0
 
 
 def _gen_ffi_call(outshapes, vmap_method: str):
