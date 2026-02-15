@@ -1,6 +1,6 @@
 [project]
 name = "torch2jax"
-version = "0.7.0"
+version = "0.7.1"
 authors = [
   { name="Robert Dyro", email="robert.dyro@gmail.com" },
 ]
@@ -13,12 +13,17 @@ classifiers = [
     "Operating System :: OS Independent",
 ]
 dependencies = [
-    "numpy",
-    "jax",
-    "torch",
+  "numpy",
+  "jax",
+  "torch",
 ]
 
 [project.optional-dependencies]
+tests = [
+  "pytest",
+  "absl-py",
+  "rich",
+]
 docs = [
   "mkdocs",
   "mkdocs-material",

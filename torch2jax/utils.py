@@ -131,9 +131,9 @@ def normalize_shapes(shapes: Any, extra_args: Any | None = None) -> Any:
     else:
         default_dtype = None
     return jax.tree.map(
-        lambda x: ShapeDtypeStruct(x.shape, dtype_t2j(x.dtype))
-        if hasattr(x, "dtype")
-        else ShapeDtypeStruct(x, default_dtype),
+        lambda x: (
+            ShapeDtypeStruct(x.shape, dtype_t2j(x.dtype)) if hasattr(x, "dtype") else ShapeDtypeStruct(x, default_dtype)
+        ),
         shapes,
         is_leaf=is_shape_desc,
     )

@@ -10,11 +10,6 @@ from torch import Tensor
 import jax
 from jax import ShapeDtypeStruct
 
-try:
-    from jax.util import safe_zip
-except ImportError:
-    safe_zip = zip
-
 # jax version-friendly way of importing the ffi module in jax
 try:
     from jax import ffi
@@ -27,7 +22,10 @@ from jax.sharding import NamedSharding, PartitionSpec, Mesh
 from .compile import compile_and_import_module
 from .utils import find_unique_id, dtype_t2j, normalize_shapes, warn_once
 
-jax.config.update("jax_use_shardy_partitioner", False)  # TODO: temporary workaround for JAX 0.7.0
+zip_ = zip
+zip = functools.partial(zip_, strict=True)
+
+jax.config.update("jax_use_shardy_partitioner", False)  # TODO: a temporary workaround for JAX 0.7.0+
 
 
 def _gen_ffi_call(outshapes, vmap_method: str):
@@ -103,9 +101,9 @@ def _torch2jax_flat(
             result_sharding = infer_sharding(fn_id, mesh, args_info, result_info)
 
             def _partitioned_fn_(*args_flat, fn_id=fn_id):
-                axis_sizes = dict(safe_zip(mesh.axis_names, mesh.device_ids.shape))
-                for arg_info, arg in safe_zip(jax.tree.leaves(args_info), jax.tree.leaves(args_flat)):
-                    for s_all, s_part, axis in safe_zip(arg_info.shape, arg.shape, arg_info.sharding.spec):
+                axis_sizes = dict(zip(mesh.axis_names, mesh.device_ids.shape))
+                for arg_info, arg in zip(jax.tree.leaves(args_info), jax.tree.leaves(args_flat)):
+                    for s_all, s_part, axis in zip(arg_info.shape, arg.shape, arg_info.sharding.spec):
                         if axis is None:
                             continue
                         axes = axis if isinstance(axis, (list, tuple)) else [axis]
@@ -116,7 +114,7 @@ def _torch2jax_flat(
                     new_outshape = []
                     spec = tuple(result_sharding.spec)
                     assert len(spec) == len(outshape.shape)
-                    for s, axis in safe_zip(outshape.shape, spec):
+                    for s, axis in zip(outshape.shape, spec):
                         if axis is None:
                             new_outshape.append(s)
                         else:
