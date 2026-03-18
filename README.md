@@ -306,7 +306,7 @@ the GPU.
 
 # Changelog
 
-- version 0.6.1
+- version 0.7.1
   - added `vmap_method=` support for experimental pytorch-side batching support,
     see [https://github.com/rdyro/torch2jax/issues/28](https://github.com/rdyro/torch2jax/issues/28)
 
