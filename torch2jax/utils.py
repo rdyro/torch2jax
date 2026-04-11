@@ -103,6 +103,10 @@ def dtype_j2m(cpp_module: ModuleType, dtype: jnp.dtype) -> int:
 
 ####################################################################################################
 
+_WARN_MIXED_PRECISION = (
+    "You appear to have provided mixed precision arguments to a function. We cannot guess the output dtype."
+)
+
 
 def _is_floating(x: Tensor | Array) -> bool:
     return jnp.issubdtype(dtype_t2j(x.dtype), jnp.floating)
@@ -110,10 +114,9 @@ def _is_floating(x: Tensor | Array) -> bool:
 
 def guess_float_type(args: list[Array | Tensor]) -> jnp.dtype:
     float_type = None
-    msg = "You appear to have provided mixed precision arguments to a function. " + "We cannot guess the output dtype."
     for arg in jax.tree.leaves(args):
         if hasattr(arg, "dtype") and _is_floating(arg):
-            assert float_type is None or dtype_t2j(arg.dtype) == float_type, msg
+            assert float_type is None or dtype_t2j(arg.dtype) == float_type, _WARN_MIXED_PRECISION
             if float_type is None:
                 float_type = dtype_t2j(arg.dtype)
     if float_type is None:

@@ -11,7 +11,21 @@ from jax.tree_util import tree_map, tree_flatten, tree_unflatten
 from jax.sharding import PartitionSpec as P
 
 from .api import torch2jax
-from .utils import _is_floating, dtype_t2j, normalize_shapes, warn_once
+from .utils import _is_floating, dtype_t2j, dtype_j2t, normalize_shapes, warn_once
+
+_ERR_SHARDING_SPEC_UNSUPPORTED = (
+    "`output_sharding_spec` not supported in `torch2jax_with_vjp`, it's somewhat difficult to automatically"
+    " define sharding spec for automatically defined vjp functions. As a work-around, please use this function"
+    " inside `shard_map` without specifying `output_sharding_spec` - you don't need to specify the specs there."
+)
+_WARN_OLD_BACKWARD_FN = (
+    "Somewhere in your PyTorch computation graph, a custom backward function is defined in the old way"
+    ' (see "https://pytorch.org/docs/stable/notes/extending.html"). This is only experimentally'
+    " supported in torch2jax. We will use a fallback based on `torch.autograd.grad` instead. Please"
+    " pass `use_torch_vjp=False` to `torch2jax_with_vjp` if you wish to use this fallback explicitly."
+    " Original error message:\n{}"
+)
+_WARN_EXPERIMENTAL_VJP = "You are NOT using PyTorch's functional VJP. This is highly experimental."
 
 
 ####################################################################################################
@@ -83,11 +97,7 @@ def torch2jax_with_vjp(
         ((20, 5), (5,))
     """
     if output_sharding_spec is not None:
-        raise RuntimeError(
-            "`output_sharding_spec` not supported in `torch2jax_with_vjp`, it's somewhat difficult to automatically"
-            " define sharding spec for automatically defined vjp functions. As a work-around, please use this function"
-            " inside `shard_map` without specifying `output_sharding_spec` - you don't need to specify the specs there."
-        )
+        raise RuntimeError(_ERR_SHARDING_SPEC_UNSUPPORTED)
 
     if output_shapes is None:
         outputs = torch_fn(*example_args)
@@ -150,19 +160,11 @@ def torch2jax_with_vjp(
                 )
                 grads_computed = True
             except RuntimeError:
-                tb = traceback.format_exc()
-                msg = (
-                    "Somewhere in your PyTorch computation graph, a custom backward function is defined in the old way"
-                    ' (see "https://pytorch.org/docs/stable/notes/extending.html"). This is only experimentally'
-                    " supported in torch2jax. We will use a fallback based on `torch.autograd.grad` instead. Please"
-                    " pass `use_torch_vjp=False` to `torch2jax_with_vjp` if you wish to use this fallback explicitly."
-                    f" Original error message:\n{tb}"
-                )
-                warn_once(msg, torch_fn)
+                warn_once(_WARN_OLD_BACKWARD_FN.format(traceback.format_exc()), torch_fn)
                 grads_computed = False
         if not grads_computed:
             if not use_torch_vjp:
-                warn_once("You are NOT using PyTorch's functional VJP. This is highly experimental.", torch_fn)
+                warn_once(_WARN_EXPERIMENTAL_VJP, torch_fn)
             [diff_arg_flat.requires_grad_(True) for diff_arg_flat in diff_args_flat]
             ret = sum(
                 torch.sum(g * r)
@@ -198,4 +200,22 @@ def torch2jax_with_vjp(
     # define the custom vjp using the fwd_fn and bwd_fn ############################################
     fn.defvjp(fwd_fn, bwd_fn)
 
-    return fn
+    # shape-aware cache for automatic re-wrapping on shape changes
+    _vjp_cache = {}
+    _original_vjp_key = tuple((tuple(a.shape), dtype_t2j(a.dtype)) for a in tree_flatten(example_args)[0])
+
+    def _cached_fn(*args):
+        key = tuple((tuple(a.shape), a.dtype) for a in tree_flatten(args)[0])
+        if key == _original_vjp_key:
+            return fn(*args)
+        if key not in _vjp_cache:
+            dummy_flat = [torch.empty(a.shape, dtype=dtype_j2t(a.dtype)) for a in tree_flatten(args)[0]]
+            dummy_args = tree_unflatten(tree_flatten(example_args)[1], dummy_flat)
+            _vjp_cache[key] = torch2jax_with_vjp(
+                torch_fn, *dummy_args, depth=depth, nondiff_argnums=nondiff_argnums,
+                nondiff_mask=nondiff_mask, use_zeros=use_zeros, use_torch_vjp=use_torch_vjp,
+                vmap_method=vmap_method,
+            )
+        return _vjp_cache[key](*args)
+
+    return _cached_fn

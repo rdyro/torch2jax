@@ -14,6 +14,14 @@ except ImportError:
 
 JAXDevice = jax.Device if hasattr(jax, "Device") else jax.lib.xla_extension.Device
 
+_ERR_MULTI_DEVICE = (
+    "You are attempting to convert a JAX array with multiple devices to a PyTorch tensor. This is not supported"
+)
+_ERR_NON_CONCRETE = (
+    "You are attempting to convert a non-concrete JAX array to a PyTorch tensor."
+    " This is not supported, since that JAX array does not contain any numbers."
+)
+
 
 def _transfer(x: Array | Tensor, via: str = "dlpack", device: str = "cuda"):
     """Transfer a JAX array or PyTorch tensor to the other framework. Assume only 1 GPU."""
@@ -43,14 +51,10 @@ def j2t(x: Array, via: str = "dlpack") -> Tensor:
     try:
         devices = x.devices()
         if len(devices) > 1:
-            msg = "You are attempting to convert a JAX array with multiple devices to a PyTorch tensor."
-            msg += " This is not supported"
-            raise RuntimeError(msg)
+            raise RuntimeError(_ERR_MULTI_DEVICE)
         device = list(devices)[0]
     except ConcretizationTypeError:
-        msg = "You are attempting to convert a non-concrete JAX array to a PyTorch tensor."
-        msg += " This is not supported, since that JAX array does not contain any numbers."
-        raise RuntimeError(msg)
+        raise RuntimeError(_ERR_NON_CONCRETE)
     return _transfer(x, via=via, device=device)
 
 

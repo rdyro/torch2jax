@@ -20,13 +20,29 @@ from jax.experimental.custom_partitioning import custom_partitioning
 from jax.sharding import NamedSharding, PartitionSpec, Mesh
 
 from .compile import compile_and_import_module
-from .utils import find_unique_id, dtype_t2j, normalize_shapes, warn_once
+from .utils import find_unique_id, dtype_t2j, dtype_j2t, normalize_shapes, warn_once
 
 zip_ = zip
 zip = functools.partial(zip_, strict=True)
 
 jax.config.update("jax_use_shardy_partitioner", False)  # TODO: a temporary workaround for JAX 0.7.0+
 
+_SHAPE_CHANGE_WARN_EXPLICIT = (
+    "torch2jax: input shapes changed, but `output_shapes` was explicitly provided. Output shapes for the new"
+    " inputs will be inferred by running the torch function with `torch.empty` tensors."
+)
+_SHAPE_CHANGE_WARN_CONCRETE = (
+    "torch2jax: input shapes changed. The torch function will be re-run with `torch.empty` tensors"
+    " (not the original concrete inputs) to infer output shapes for the new input shapes."
+)
+_WARN_OUTPUT_SHAPES_FORMAT = (
+    "Please provide all shapes as torch.Size or jax.ShapeDtypeStruct. We'll attempt to guess all"
+    " containers with only integer entries are shapes (for compatibility), but this is very error-prone."
+)
+_MISMATCH_ARGS_KW_MSG = (
+    "Provided (args, kw) =\n{} do not match the torch2jax function's expected input structure =\n{}"
+)
+_MISMATCH_ARGS_MSG = "Provided args =\n{} do not match the torch2jax function's expected input structure =\n{}"
 
 def _gen_ffi_call(outshapes, vmap_method: str):
     if signature(ffi.ffi_call).return_annotation.startswith("Callable"):
@@ -179,6 +195,7 @@ def torch2jax(
     """
 
     # check for presence of example_args and example_kw
+    _had_output_shapes = output_shapes is not None
     has_kw = example_kw is not None
 
     # find the input structure
@@ -212,11 +229,7 @@ def torch2jax(
             isinstance(x, (torch.Size, ShapeDtypeStruct, jax.Array, torch.Tensor)) or hasattr(x, "shape")
             for x in jax.tree.leaves(output_shapes)
         ):
-            warn_once(
-                "Please provide all shapes as torch.Size or jax.ShapeDtypeStruct. We'll attempt to guess all"
-                " containers with only integer entries are shapes (for compatibility), but this is very error-prone.",
-                fn,
-            )
+            warn_once(_WARN_OUTPUT_SHAPES_FORMAT, fn)
         output_shapes = normalize_shapes(output_shapes, extra_args=input_shapes)
         output_shapes, output_struct = jax.tree.flatten(output_shapes)
     if output_sharding_spec is not None:
@@ -238,44 +251,34 @@ def torch2jax(
         vmap_method=vmap_method,
     )
 
+    # shape-aware cache for automatic re-wrapping on shape changes
+    _cache = {}
+    _original_shape_key = tuple(
+        (tuple(a.shape), dtype_t2j(a.dtype))
+        for a in jax.tree.leaves((example_args, example_kw) if has_kw else example_args)
+    )
+
     # define the actual wrapper function
     def wrapped_fn(*args, **kw):
-        nonlocal fn, input_shapes, output_shapes
         if not has_kw and len(kw) > 0:
             raise RuntimeError("Keyword arguments not expected!")
         if has_kw:
             args = (args, kw)
-            mismatch_args_msg = (
-                "Provided (args, kw) =\n{} do not match the torch2jax function's expected input structure =\n{}"
-            )
-        else:
-            mismatch_args_msg = (
-                "Provided args =\n{} do not match the torch2jax function's expected input structure =\n{}"
-            )
         if jax.tree.structure(args) != input_struct:
-            raise RuntimeError(mismatch_args_msg.format(args, input_struct))
+            msg = (_MISMATCH_ARGS_KW_MSG if has_kw else _MISMATCH_ARGS_MSG).format(args, input_struct)
+            raise RuntimeError(msg)
 
-        common_mismatch_input_msg = (
-            f"\nActual = {args}\nExpected = {input_shapes}"
-            f"\nAre you perhaps using a JAX transformation like `shard_map`, `vmap` or `pmap`?"
-            " You can try defining torch2jax eagerly inside `shard_map` or defining an un-batched version for `pmap`."
-            " However, torch2jax is currently NOT WORKING with `pmap`, please use `shard_map`"
-            " or the experimental `auto_partitioning=True`"
-        )
-        if output_sharding_spec:
-            if not jax.tree.all(jax.tree.map(lambda x, y: getattr(x, "ndim", -1) == y.ndim, args, input_shapes)):
-                msg = (
-                    "Not all inputs to your torch2jax function match the dimensions of the expected input."
-                    + common_mismatch_input_msg
-                )
-                raise RuntimeError(msg)
-        else:
-            if not jax.tree.all(jax.tree.map(lambda x, y: getattr(x, "shape", [-1]) == y.shape, args, input_shapes)):
-                msg = (
-                    "Not all inputs to your torch2jax function match the shapes of the expected input."
-                    + common_mismatch_input_msg
-                )
-                raise RuntimeError(msg)
+        shape_key = tuple((tuple(a.shape), a.dtype) for a in jax.tree.leaves(args))
+        if shape_key != _original_shape_key:
+            if shape_key not in _cache:
+                warn_once(_SHAPE_CHANGE_WARN_EXPLICIT if _had_output_shapes else _SHAPE_CHANGE_WARN_CONCRETE, fn)
+                dummy_flat = [torch.empty(a.shape, dtype=dtype_j2t(a.dtype)) for a in jax.tree.leaves(args)]
+                dummy_tree = jax.tree.unflatten(input_struct, dummy_flat)
+                opts = dict(output_sharding_spec=output_sharding_spec, vmap_method=vmap_method)
+                dummy_args, dummy_kw = dummy_tree if has_kw else (dummy_tree, None)
+                _cache[shape_key] = torch2jax(fn, *dummy_args, example_kw=dummy_kw, **opts)
+            return _cache[shape_key](*args[0], **args[1]) if has_kw else _cache[shape_key](*args)
+
         ret = wrapped_fn_flat(*jax.tree.leaves(args))
         return jax.tree.unflatten(output_struct, ret)
 
