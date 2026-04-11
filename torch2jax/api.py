@@ -37,10 +37,9 @@ _WARN_OUTPUT_SHAPES_FORMAT = (
     "Please provide all shapes as torch.Size or jax.ShapeDtypeStruct. We'll attempt to guess all"
     " containers with only integer entries are shapes (for compatibility), but this is very error-prone."
 )
-_MISMATCH_ARGS_KW_MSG = (
-    "Provided (args, kw) =\n{} do not match the torch2jax function's expected input structure =\n{}"
-)
+_MISMATCH_ARGS_KW_MSG = "Provided (args, kw) =\n{} do not match the torch2jax function's expected input structure =\n{}"
 _MISMATCH_ARGS_MSG = "Provided args =\n{} do not match the torch2jax function's expected input structure =\n{}"
+
 
 def _gen_ffi_call(outshapes, vmap_method: str):
     if signature(ffi.ffi_call).return_annotation.startswith("Callable"):

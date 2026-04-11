@@ -25,9 +25,7 @@ _WARN_OLD_BACKWARD_FN = (
     " Original error message:\n{}"
 )
 _WARN_EXPERIMENTAL_VJP = "You are NOT using PyTorch's functional VJP. This is highly experimental."
-_WARN_TORCH2JAX_WITH_VJP_DEPRECATED = (
-    "`torch2jax_with_vjp` is deprecated, use `torch2jax(..., depth=2)` instead."
-)
+_WARN_TORCH2JAX_WITH_VJP_DEPRECATED = "`torch2jax_with_vjp` is deprecated, use `torch2jax(..., depth=2)` instead."
 
 
 ####################################################################################################
@@ -201,8 +199,13 @@ def torch2jax(
             dummy_flat = [torch.zeros(a.shape, dtype=dtype_j2t(a.dtype)) for a in tree_flatten(args)[0]]
             dummy_args = tree_unflatten(tree_flatten(example_args)[1], dummy_flat)
             _vjp_cache[key] = torch2jax(
-                torch_fn, *dummy_args, depth=depth, nondiff_argnums=nondiff_argnums,
-                nondiff_mask=nondiff_mask, use_zeros=use_zeros, use_torch_vjp=use_torch_vjp,
+                torch_fn,
+                *dummy_args,
+                depth=depth,
+                nondiff_argnums=nondiff_argnums,
+                nondiff_mask=nondiff_mask,
+                use_zeros=use_zeros,
+                use_torch_vjp=use_torch_vjp,
                 vmap_method=vmap_method,
             )
         return _vjp_cache[key](*args)
