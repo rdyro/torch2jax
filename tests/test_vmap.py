@@ -1,7 +1,4 @@
-from __future__ import annotations
-
-import sys
-from pathlib import Path
+import itertools
 from inspect import signature
 
 from absl.testing import parameterized, absltest
@@ -9,20 +6,25 @@ import torch
 import jax
 from jax import numpy as jnp
 from jax.scipy.linalg import cho_factor, cho_solve
+
 try:
     from jax import ffi
 except ImportError:
     from jax.extend import ffi
 
-paths = [Path(__file__).absolute().parents[1], Path(__file__).absolute().parent]
-for path in paths:
-    if str(path) not in sys.path:
-        sys.path.append(str(path))
-
 from torch2jax import torch2jax, torch2jax_with_vjp  # noqa: E402
-from utils import jax_randn  # noqa: E402
 
 ####################################################################################################
+
+randn_keys = None
+
+
+def jax_randn(shape, device, dtype):
+    global randn_keys
+    if randn_keys is None:
+        randn_keys = itertools.cycle(jax.random.split(jax.random.key(0), 1024))
+    device = device if not isinstance(device, str) else jax.devices(device)[0]
+    return jax.device_put(jax.random.normal(next(randn_keys), shape, dtype=dtype), device)
 
 
 class TestVmap(parameterized.TestCase):
@@ -51,7 +53,7 @@ class TestVmap(parameterized.TestCase):
         assert err < 1e-3
 
     @parameterized.product(device=["cuda", "cpu"], dtype=[jnp.float32, jnp.float64])
-    def test_simple_vmap(self, device, dtype):
+    def test_simple_vmap_v2(self, device, dtype):
         if device == "cuda" and not torch.cuda.is_available():
             self.skipTest("Skipping CUDA tests when CUDA is not available")
         if not signature(ffi.ffi_call).return_annotation.startswith("Callable"):

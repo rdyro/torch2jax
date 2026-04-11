@@ -1,18 +1,8 @@
-from __future__ import annotations
-
-import sys
-from pathlib import Path
-
 from absl.testing import parameterized, absltest
 import torch
 import jax
 from jax import numpy as jnp, ShapeDtypeStruct
 from jax.nn import softmax
-
-paths = [Path(__file__).absolute().parents[1], Path(__file__).absolute().parent]
-for path in paths:
-    if str(path) not in sys.path:
-        sys.path.append(str(path))
 
 from torch2jax import torch2jax_with_vjp  # noqa: E402
 from torch2jax import tree_t2j  # noqa: E402
@@ -55,7 +45,7 @@ class TestNondiffArgs(parameterized.TestCase):
         for use_torch_vjp in [True, False]:
             fn_jax = torch2jax_with_vjp(fn, a, b, c, nondiff_argnums=(2,), depth=2, use_torch_vjp=use_torch_vjp)
         a, b, c = tree_t2j((a, b, c))
-        g = jax.grad(lambda *args: jnp.sum(fn_jax(*args)), argnums=(0, 1))(a, b, c)
+        _ = jax.grad(lambda *args: jnp.sum(fn_jax(*args)), argnums=(0, 1))(a, b, c)
 
         def fn(a, c, b):
             return torch.sin(a + 2 * b) * torch.softmax(a - b, dim=0).reshape(-1)[0]

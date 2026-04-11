@@ -1,5 +1,4 @@
-import sys
-from pathlib import Path
+import itertools
 
 from absl.testing import absltest
 from absl.testing import parameterized
@@ -10,17 +9,20 @@ from jax import numpy as jnp
 from jax import Array, jit
 import numpy as np
 
-
-paths = [Path(__file__).absolute().parents[1], Path(__file__).absolute().parent]
-for path in paths:
-    if str(path) not in sys.path:
-        sys.path.append(str(path))
-
-from utils import jax_randn  # noqa: E402
 from torch2jax import j2t, t2j, tree_j2t, tree_t2j  # noqa: E402
 
 DTYPE_MAP = {torch.float32: jnp.float32, torch.float64: jnp.float64}
 DEVICE_MAP = {"gpu": "cuda", "cpu": "cpu", "cuda": "cuda"}
+
+randn_keys = None
+
+
+def jax_randn(shape, device, dtype):
+    global randn_keys
+    if randn_keys is None:
+        randn_keys = itertools.cycle(jax.random.split(jax.random.key(0), 1024))
+    device = device if not isinstance(device, str) else jax.devices(device)[0]
+    return jax.device_put(jax.random.normal(next(randn_keys), shape, dtype=dtype), device)
 
 
 class TestDlpackTransfers(parameterized.TestCase, absltest.TestCase):

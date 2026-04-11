@@ -19,7 +19,7 @@ from jax import numpy as jnp
 import matplotlib.pyplot as plt
 import numpy as np
 
-from torch2jax import tree_t2j, torch2jax_with_vjp
+from torch2jax import tree_t2j, torch2jax
 
 ```
 
@@ -55,7 +55,7 @@ encoded_text = tokenizer_torch(text)
 ### We do not need to specify output, the library will call the torch function ones to infer the output
 
 ```python
-jax_fwd_fn = jax.jit(torch2jax_with_vjp(torch_fwd_fn, params, buffers, encoded_text))
+jax_fwd_fn = jax.jit(torch2jax(torch_fwd_fn, params, buffers, encoded_text))
 params_jax, buffers_jax = tree_t2j(params), tree_t2j(buffers)
 encoded_text_jax = tree_t2j(encoded_text)
 ```

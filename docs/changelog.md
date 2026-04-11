@@ -1,5 +1,18 @@
 # Changelog
 
+- version 0.8.0
+  - **breaking**: `torch2jax` now defines gradients by default (`depth=2`), unifying
+    the old `torch2jax` (forward-only) and `torch2jax_with_vjp` (with gradients)
+  - `torch2jax_with_vjp` is deprecated — use `torch2jax` instead
+  - use `depth=0` for the old forward-only behavior
+  - `torch2jax_without_vjp` is the public API for sharding (`output_sharding_spec`)
+    and keyword arguments (`example_kw`)
+
+- version 0.7.2
+  - wrapped functions now automatically cache for different input shapes — no need
+    to re-wrap when calling with new shapes
+  - a warning is emitted on the first shape change to inform the user
+
 - version 0.6.1
   - added `vmap_method=` support for experimental pytorch-side batching support,
     see [https://github.com/rdyro/torch2jax/issues/28](https://github.com/rdyro/torch2jax/issues/28)
@@ -42,7 +55,7 @@
     avoid reading unwritten data
 
 - version 0.4.4
-  - introduced a `use_torch_vjp` (defaulting to True) flag in `torch2jax_with_vjp` which 
+  - introduced a `use_torch_vjp` (defaulting to True) flag in `torch2jax_with_vjp` which
     can be set to False to use the old `torch.autograd.grad` for taking
     gradients, it is the slower method, but is more compatible
 

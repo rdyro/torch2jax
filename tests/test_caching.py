@@ -29,9 +29,9 @@ class TestCaching(parameterized.TestCase):
 
         x = torch.randn(10, 5)
         y = torch.randn(5, 3)
-        
+
         jax_fn = torch2jax(torch_fn, x, y)
-        
+
         # Original shape
         xj, yj = tree_t2j((x, y))
         out1 = jax_fn(xj, yj)
@@ -41,7 +41,7 @@ class TestCaching(parameterized.TestCase):
         x2 = torch.randn(20, 5)
         y2 = torch.randn(5, 7)
         xj2, yj2 = tree_t2j((x2, y2))
-        
+
         out2 = jax_fn(xj2, yj2)
         assert out2.shape == (20, 7)
 
@@ -55,17 +55,17 @@ class TestCaching(parameterized.TestCase):
 
         x = torch.randn(10, 5)
         y = torch.randn(5, 3)
-        
+
         jax_fn = torch2jax_with_vjp(torch_fn, x, y)
-        
+
         xj, yj = tree_t2j((x, y))
-        
+
         @jax.jit
         def f(x, y):
             return jnp.sum(jax_fn(x, y))
 
         g_fn = jax.jit(jax.grad(f, argnums=(0, 1)))
-        
+
         g1_x, g1_y = g_fn(xj, yj)
         assert g1_x.shape == (10, 5)
         assert g1_y.shape == (5, 3)
@@ -73,7 +73,7 @@ class TestCaching(parameterized.TestCase):
         x2 = torch.randn(20, 5)
         y2 = torch.randn(5, 7)
         xj2, yj2 = tree_t2j((x2, y2))
-        
+
         g2_x, g2_y = g_fn(xj2, yj2)
         assert g2_x.shape == (20, 5)
         assert g2_y.shape == (5, 7)

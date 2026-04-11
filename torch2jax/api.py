@@ -25,8 +25,6 @@ from .utils import find_unique_id, dtype_t2j, dtype_j2t, normalize_shapes, warn_
 zip_ = zip
 zip = functools.partial(zip_, strict=True)
 
-jax.config.update("jax_use_shardy_partitioner", False)  # TODO: a temporary workaround for JAX 0.7.0+
-
 _SHAPE_CHANGE_WARN_EXPLICIT = (
     "torch2jax: input shapes changed, but `output_shapes` was explicitly provided. Output shapes for the new"
     " inputs will be inferred by running the torch function with `torch.empty` tensors."
@@ -101,6 +99,8 @@ def _torch2jax_flat(
             fn_id = f"{id:d}"
             return fn_(*args_flat, fn_id=fn_id)
 
+        jax.config.update("jax_use_shardy_partitioner", False)  # TODO: a temporary workaround for JAX 0.7.0+
+
         @functools.partial(custom_partitioning, static_argnums=(0,))
         def partitioned_f(fn_id: str, *args_flat):
             assert fn_id is not None
@@ -153,7 +153,7 @@ def _torch2jax_flat(
     return wrapped_flat_fn
 
 
-def torch2jax(
+def _torch2jax(
     fn: Callable,
     *example_args: Any,
     example_kw: Any | None = None,
@@ -272,14 +272,17 @@ def torch2jax(
         if shape_key != _original_shape_key:
             if shape_key not in _cache:
                 warn_once(_SHAPE_CHANGE_WARN_EXPLICIT if _had_output_shapes else _SHAPE_CHANGE_WARN_CONCRETE, fn)
-                dummy_flat = [torch.empty(a.shape, dtype=dtype_j2t(a.dtype)) for a in jax.tree.leaves(args)]
+                dummy_flat = [torch.zeros(a.shape, dtype=dtype_j2t(a.dtype)) for a in jax.tree.leaves(args)]
                 dummy_tree = jax.tree.unflatten(input_struct, dummy_flat)
                 opts = dict(output_sharding_spec=output_sharding_spec, vmap_method=vmap_method)
                 dummy_args, dummy_kw = dummy_tree if has_kw else (dummy_tree, None)
-                _cache[shape_key] = torch2jax(fn, *dummy_args, example_kw=dummy_kw, **opts)
+                _cache[shape_key] = _torch2jax(fn, *dummy_args, example_kw=dummy_kw, **opts)
             return _cache[shape_key](*args[0], **args[1]) if has_kw else _cache[shape_key](*args)
 
         ret = wrapped_fn_flat(*jax.tree.leaves(args))
         return jax.tree.unflatten(output_struct, ret)
 
     return wrapped_fn
+
+
+torch2jax_without_vjp = _torch2jax

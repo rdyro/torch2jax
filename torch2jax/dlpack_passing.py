@@ -37,7 +37,7 @@ def _transfer(x: Array | Tensor, via: str = "dlpack", device: str = "cuda"):
             return torch.as_tensor(np.array(x), device=torch_device)
     else:
         if via == "dlpack":
-            return jax.dlpack.from_dlpack(x)
+            return jax.dlpack.from_dlpack(x.detach())
         else:
             if isinstance(device, JAXDevice):
                 jax_device = device

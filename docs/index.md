@@ -42,7 +42,7 @@ $ pip install git+https://github.com/rdyro/torch2jax.git
 $ pip install wrap-torch2jax
 $ # then
 $ python3
-$ >>> from wrap_torch2jax import torch2jax, torch2jax_with_vjp
+$ >>> from wrap_torch2jax import torch2jax
 ```
 
 Tested on:
@@ -51,27 +51,29 @@ Tested on:
 
 # Usage
 
-With a single output
+`torch2jax` is the main entry point. By default it defines gradients (VJP rules
+up to `depth=2`), so `jax.grad` works out of the box.
 
 ```python
 import torch
 import jax
 from jax import numpy as jnp
-from torch2jax import torch2jax  # this converts a Python function to JAX
-from torch2jax import Size, dtype_t2j  # this is torch.Size, a tuple-like shape representation
-
+from torch2jax import torch2jax
+from torch2jax import Size, dtype_t2j
 
 def torch_fn(a, b):
     return a + b
 
-
 shape = (10, 2)
 a, b = torch.randn(shape), torch.randn(shape)
-jax_fn = torch2jax(torch_fn, a, b)  # without output_shapes, torch_fn **will be evaluated once**
-jax_fn = torch2jax(torch_fn, a, b, output_shapes=Size(a.shape))  # torch_fn will NOT be evaluated
+
+# without output_shapes, torch_fn **will be evaluated once** to infer outputs
+jax_fn = torch2jax(torch_fn, a, b)
+
+# with output_shapes, torch_fn will NOT be evaluated
+jax_fn = torch2jax(torch_fn, a, b, output_shapes=Size(a.shape))
 
 # you can specify the whole input and output structure without instantiating the tensors
-# torch_fn will NOT be evaluated
 jax_fn = torch2jax(
     torch_fn,
     jax.ShapeDtypeStruct(a.shape, dtype_t2j(a.dtype)),
@@ -79,41 +81,40 @@ jax_fn = torch2jax(
     output_shapes=jax.ShapeDtypeStruct(a.shape, dtype_t2j(a.dtype)),
 )
 
-prngkey = jax.random.PRNGKey(0)
+key = jax.random.key(0)
 device = jax.devices("cuda")[0]  # both CPU and CUDA are supported
-a = jax.device_put(jax.random.normal(prngkey, shape), device)
-b = jax.device_put(jax.random.normal(prngkey, shape), device)
+a = jax.device_put(jax.random.normal(key, shape), device)
+b = jax.device_put(jax.random.normal(key, shape), device)
 
 # call the no-copy torch function
 out = jax_fn(a, b)
 
 # call the no-copy torch function **under JIT**
 out = jax.jit(jax_fn)(a, b)
+
+# gradients work!
+g_fn = jax.grad(lambda a, b: jnp.sum(jax_fn(a, b)), argnums=(0, 1))
+ga, gb = g_fn(a, b)
 ```
 
-With a multiple outputs
+With multiple outputs
 
 ```python
 def torch_fn(a, b):
     layer = torch.nn.Linear(2, 20).to(a)
     return a + b, torch.norm(a), layer(a * b)
 
-
 shape = (10, 2)
 a, b = torch.randn(shape), torch.randn(shape)
-jax_fn = torch2jax(torch_fn, a, b)  # with example argumetns
+jax_fn = torch2jax(torch_fn, a, b)
 
-prngkey = jax.random.PRNGKey(0)
+key = jax.random.key(0)
 device = jax.devices("cuda")[0]
-a = jax.device_put(jax.random.normal(prngkey, shape), device)
-b = jax.device_put(jax.random.normal(prngkey, shape), device)
+a = jax.device_put(jax.random.normal(key, shape), device)
+b = jax.device_put(jax.random.normal(key, shape), device)
 
-# call the no-copy torch function
 x, y, z = jax_fn(a, b)
-
-# call the no-copy torch function **under JIT**
 x, y, z = jax.jit(jax_fn)(a, b)
-
 ```
 
 For a more advanced discussion on different ways of specifying input/output
@@ -123,29 +124,26 @@ notebook in the `examples` folder.
 
 # Automatically defining gradients
 
-Automatic reverse-mode gradient definitions are now supported for wrapped
-pytorch functions with the method `torch2jax_with_vjp`
+`torch2jax` defines reverse-mode gradients (VJP rules) by default (`depth=2`).
+The `depth` parameter controls how many times the function can be differentiated.
 
 ```python
 import torch
 import jax
 from jax import numpy as jnp
 import numpy as np
-
-from torch2jax import torch2jax_with_vjp
+from torch2jax import torch2jax
 
 def torch_fn(a, b):
   return torch.nn.MSELoss()(a, b)
 
 shape = (6,)
-
 xt, yt = torch.randn(shape), torch.randn(shape)
 
-# `depth` determines how many times the function can be differentiated
-jax_fn = torch2jax_with_vjp(torch_fn, xt, yt, depth=2) 
+# depth=2 is the default, allowing up to 2nd-order differentiation
+jax_fn = torch2jax(torch_fn, xt, yt)
 
-
-# we can now differentiate the function (derivatives are taken using PyTorch autodiff)
+# derivatives are taken using PyTorch autodiff
 g_fn = jax.grad(jax_fn, argnums=(0, 1))
 x, y = jnp.array(np.random.randn(*shape)), jnp.array(np.random.randn(*shape))
 
@@ -155,44 +153,39 @@ print(g_fn(x, y))
 print(jax.jit(g_fn)(x, y))
 ```
 
-Caveats: 
+Use `depth=0` to skip gradient definitions (forward-only):
+
+```python
+jax_fn = torch2jax(torch_fn, xt, yt, depth=0)  # no VJP, forward-only
+```
+
+> **Note**: `torch2jax_with_vjp` is deprecated. Use `torch2jax` (which has
+> `depth=2` by default) instead.
+
+Caveats:
 
 - `jax.hessian(f)` will not work since `torch2jax` uses forward differentiation, but
   the same functionality can be achieved using `jax.jacobian(jax.jacobian(f))`
-- input shapes are fixed for one wrapped function and cannot change, use
-  `torch2jax_with_vjp/torch2jax` again if you need to alter the input shapes
-- in line with JAX philosphy, PyTorch functions must be non-mutable,
+- in line with JAX philosophy, PyTorch functions must be non-mutable,
   [torch.func](https://pytorch.org/docs/master/func.html) has a good description
   of how to convert e.g., PyTorch models, to non-mutable formulation
 
-# NEW: Performant multi-gpu (experimental)
+# Multi-GPU support
 
-User feedback greatly appreciated, feel free to open an issue if you have any
-questions or are running into issues: [https://github.com/rdyro/torch2jax/issues/new](https://github.com/rdyro/torch2jax/issues/new).
-
-`torch2jax` should now support efficient multi-gpu calling. JAX, broadly,
-provides 3 main ways of calling multi-device code:
-  - `shard_map` - per-device view, the **recommended** way of using `torch2jax`
-    - supports sharded multi-GPU arrays called in parallel
-    - supports automatically defining gradients
-  - `jax.jit` - the jit function supports automatic computation on sharded
-  inputs; this is currently partially supported by providing the sharding spec 
-  of the output
-  - `jax.pmap` - (DOES NOT WORK) works somewhat like `shard_map`, but with
-  `jnp.stack` instead of `jnp.concatenate` over devices, please use `shard_map`
-  instead
+`torch2jax` supports efficient multi-GPU calling. The **recommended** approach
+is `shard_map` — each shard sees single-device data, so you can use `torch2jax`
+directly (with full gradient support).
 
 ```python
-# Data-parallel model
 import functools
 import copy
 
 import torch
 import torch.nn as nn
 import jax
-from jax.experimental.shard_map import shard_map
+from jax import shard_map
 from jax.sharding import PartitionSpec as P, NamedSharding
-from torch2jax import torch2jax, torch2jax_with_vjp, tree_t2j
+from torch2jax import torch2jax, tree_t2j
 
 
 def _setattr(mod, key, delim: str = "."):
@@ -212,18 +205,18 @@ if __name__ == "__main__":
     model = nn.Sequential(nn.Linear(1024 * 1024, 1024), nn.SiLU(), nn.Linear(1024, 16)).to("cuda:0")
     params = dict(model.named_parameters())
     [p.requires_grad_(False) for p in params.values()]
-    _strip_model(model)  # remove params from the model, leaving only a skeleton
+    _strip_model(model)
 
     def call_model_torch(x, params):
         ys = []
         for _ in range(30):
-            # functional_call uses the model in-place, we need a local copy
             local_model_skeleton = copy.deepcopy(model)
             ys.append(torch.func.functional_call(local_model_skeleton, params, x))
         return sum(ys)
 
     devices = jax.devices("cuda")
     mesh = jax.make_mesh((len(devices),), P("x"), devices=devices)
+    jax.sharding.set_mesh(mesh)
     params_sharding = NamedSharding(mesh, P())  # fully replicated
     batch_sharding = NamedSharding(mesh, P("x", None))  # sharded along batch
 
@@ -236,24 +229,9 @@ if __name__ == "__main__":
     params_spec = jax.tree.map(lambda _: params_sharding.spec, params)
 
     @jax.jit
-    @functools.partial(
-        shard_map,
-        mesh=mesh,
-        in_specs=(batch_sharding.spec, params_spec),
-        out_specs=batch_sharding.spec,
-        check_rep=False,
-    )
+    @functools.partial(shard_map, out_specs=batch_sharding.spec)
     def fwd_fn(x, params):
-        return torch2jax_with_vjp(call_model_torch, x, params, output_shapes=x[:, :16])(x, params)
-
-    y = fwd_fn(x, params)
-
-    # OR using JIT (but without gradients)
-    fwd_fn = jax.jit(
-        torch2jax(
-            call_model_torch, x, params, output_shapes=x[:, :16], output_sharding_spec=P("x", None)
-        )
-    )
+        return torch2jax(call_model_torch, x, params, output_shapes=x[:, :16])(x, params)
 
     y = fwd_fn(x, params)
 ```
@@ -263,20 +241,32 @@ if __name__ == "__main__":
   <p align="center">Fig: Overlapping torch calls on multiple devices (RTX A4000 x 4)</p>
 </p>
 
-
 > Note: `jax.vmap`'s semantics might indicate that it can compute on sharded
 arrays, it can work, but it is not recommend, and because of `torch2jax`'s
 implementation will likely be executed sequentially (and likely be slow).
 
 # Dealing with Changing Shapes
 
-You can deal with changing input shapes by calling `torch2jax` (and
-`torch2jax_with_vjp`) in the JAX function, both under JIT and eagerly!
+Wrapped functions now **automatically cache** for different input shapes. When
+called with new shapes, the wrapper re-creates itself transparently (a warning
+is emitted on the first shape change).
+
+```python
+jax_fn = torch2jax(torch_fn, xt_10, yt_10)  # wrapped for shape (10,)
+
+# calling with shape (20,) works — the wrapper is automatically re-created and cached
+jax_fn(x_20, y_20)
+
+# subsequent calls with shape (20,) reuse the cached wrapper
+jax_fn(x_20, y_20)
+```
+
+You can also still manually call `torch2jax` inside JIT for full control:
 
 ```python
 @jax.jit
 def compute(a, b, c):
-    d = torch2jax_with_vjp(
+    d = torch2jax(
         torch_fn,
         jax.ShapeDtypeStruct(a.shape, dtype_t2j(a.dtype)),
         jax.ShapeDtypeStruct(b.shape, dtype_t2j(b.dtype)),
@@ -299,16 +289,26 @@ the GPU.
 # Current Limitations of `torch2jax`
 
 - compilation happens on module import and can take 1-2 minutes (it will be cached afterwards)
-- in the Pytorch function all arguments must be tensors, all outputs must be tensors
-- all arguments must be on the same device and of the same datatype, either float32 or float64
+- in the PyTorch function all arguments must be tensors, all outputs must be tensors
+- all arguments must be on the same device
 - an input/output shape (e.g. `output_shapes=` kw argument) representations (for
   flexibility in input and output structure) must be wrapped in `torch.Size` or
   `jax.ShapeDtypeStruct`
-- the current implementation does not support batching, that's on the roadmap
-- the current implementation does not define the VJP rule, in current design, this has to be done in 
-  Python
 
 # Changelog
+
+- version 0.8.0
+  - **breaking**: `torch2jax` now defines gradients by default (`depth=2`), unifying
+    the old `torch2jax` (forward-only) and `torch2jax_with_vjp` (with gradients)
+  - `torch2jax_with_vjp` is deprecated — use `torch2jax` instead
+  - use `depth=0` for the old forward-only behavior
+  - `torch2jax_without_vjp` is the public API for sharding (`output_sharding_spec`)
+    and keyword arguments (`example_kw`)
+
+- version 0.7.2
+  - wrapped functions now automatically cache for different input shapes — no need
+    to re-wrap when calling with new shapes
+  - a warning is emitted on the first shape change to inform the user
 
 - version 0.6.1
   - added `vmap_method=` support for experimental pytorch-side batching support,
@@ -352,7 +352,7 @@ the GPU.
     avoid reading unwritten data
 
 - version 0.4.4
-  - introduced a `use_torch_vjp` (defaulting to True) flag in `torch2jax_with_vjp` which 
+  - introduced a `use_torch_vjp` (defaulting to True) flag in `torch2jax_with_vjp` which
     can be set to False to use the old `torch.autograd.grad` for taking
     gradients, it is the slower method, but is more compatible
 
@@ -402,13 +402,12 @@ the GPU.
 - [x] support both GPU and CPU
 - [x] (feature) support partial CPU building on systems without CUDA
 - [x] (user-friendly) support functions with a single output (return a single output, not a tuple)
-- [x] (user-friendly) support arbitrary argument input and output structure (use pytrees on the 
+- [x] (user-friendly) support arbitrary argument input and output structure (use pytrees on the
       Python side)
 - [x] (feature) support batching (e.g., support for `jax.vmap`)
 - [x] (feature) support integer input/output types
 - [x] (feature) support mixed-precision arguments in inputs/outputs
-- [x] (feature) support defining VJP for the wrapped function (import the experimental functionality 
-      from [jit-JAXFriendlyInterface](https://github.com/rdyro/jfi-JAXFriendlyInterface))
+- [x] (feature) support defining VJP for the wrapped function (now on by default via `depth=2`)
 - [x] (tests) test how well device mapping works on multiple GPUs
 - [x] (tests) setup automatic tests for multiple versions of Python, PyTorch and JAX
 - [ ] (feature) look into supporting in-place functions (support for output without copy)

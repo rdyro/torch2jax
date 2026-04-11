@@ -1,5 +1,4 @@
-import sys
-from pathlib import Path
+import itertools
 
 from absl.testing import parameterized, absltest
 import torch
@@ -8,16 +7,19 @@ import jax
 from jax import numpy as jnp
 from jax import Array
 
-
-paths = [Path(__file__).absolute().parents[1], Path(__file__).absolute().parent]
-for path in paths:
-    if str(path) not in sys.path:
-        sys.path.append(str(path))
-
-from utils import jax_randn  # noqa: E402
 from torch2jax import torch2jax  # noqa: E402
 
 ####################################################################################################
+
+randn_keys = None
+
+
+def jax_randn(shape, device, dtype):
+    global randn_keys
+    if randn_keys is None:
+        randn_keys = itertools.cycle(jax.random.split(jax.random.key(0), 1024))
+    device = device if not isinstance(device, str) else jax.devices(device)[0]
+    return jax.device_put(jax.random.normal(next(randn_keys), shape, dtype=dtype), device)
 
 
 class TestFnWrapping(parameterized.TestCase):
@@ -29,9 +31,6 @@ class TestFnWrapping(parameterized.TestCase):
 
         def torch_fn(x, y):
             return (x + 1 - y.reshape(x.shape)) / torch.norm(y)
-
-        device_list = ["cpu", "cuda"] if torch.cuda.is_available() else ["cpu"]
-        dtype_list = [jnp.float32, jnp.float64]
 
         x = jax_randn(shape, device="cpu", dtype=jnp.float64)
         y = jax_randn(shape, device="cpu", dtype=jnp.float64).reshape(-1)

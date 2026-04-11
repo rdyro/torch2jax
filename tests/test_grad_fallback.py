@@ -1,7 +1,4 @@
-from __future__ import annotations
-
-import sys
-from pathlib import Path
+import itertools
 
 from absl.testing import parameterized, absltest
 import torch
@@ -9,15 +6,19 @@ from torch.autograd import Function
 import jax
 from jax import numpy as jnp, Array
 
-paths = [Path(__file__).absolute().parents[1], Path(__file__).absolute().parent]
-for path in paths:
-    if str(path) not in sys.path:
-        sys.path.append(str(path))
-
 from torch2jax import torch2jax_with_vjp  # noqa: E402
-from utils import jax_randn  # noqa: E402
 
 ####################################################################################################
+
+randn_keys = None
+
+
+def jax_randn(shape, device, dtype):
+    global randn_keys
+    if randn_keys is None:
+        randn_keys = itertools.cycle(jax.random.split(jax.random.key(0), 1024))
+    device = device if not isinstance(device, str) else jax.devices(device)[0]
+    return jax.device_put(jax.random.normal(next(randn_keys), shape, dtype=dtype), device)
 
 
 class TestGradFallback(parameterized.TestCase):

@@ -8,13 +8,12 @@ import torch
 import jax
 from jax import ShapeDtypeStruct
 from jax.tree_util import tree_map, tree_flatten, tree_unflatten
-from jax.sharding import PartitionSpec as P
 
-from .api import torch2jax
+from .api import _torch2jax, _SHAPE_CHANGE_WARN_CONCRETE, _SHAPE_CHANGE_WARN_EXPLICIT
 from .utils import _is_floating, dtype_t2j, dtype_j2t, normalize_shapes, warn_once
 
 _ERR_SHARDING_SPEC_UNSUPPORTED = (
-    "`output_sharding_spec` not supported in `torch2jax_with_vjp`, it's somewhat difficult to automatically"
+    "`output_sharding_spec` not supported in `torch2jax(depth>0)`, it's somewhat difficult to automatically"
     " define sharding spec for automatically defined vjp functions. As a work-around, please use this function"
     " inside `shard_map` without specifying `output_sharding_spec` - you don't need to specify the specs there."
 )
@@ -22,48 +21,50 @@ _WARN_OLD_BACKWARD_FN = (
     "Somewhere in your PyTorch computation graph, a custom backward function is defined in the old way"
     ' (see "https://pytorch.org/docs/stable/notes/extending.html"). This is only experimentally'
     " supported in torch2jax. We will use a fallback based on `torch.autograd.grad` instead. Please"
-    " pass `use_torch_vjp=False` to `torch2jax_with_vjp` if you wish to use this fallback explicitly."
+    " pass `use_torch_vjp=False` to `torch2jax` if you wish to use this fallback explicitly."
     " Original error message:\n{}"
 )
 _WARN_EXPERIMENTAL_VJP = "You are NOT using PyTorch's functional VJP. This is highly experimental."
+_WARN_TORCH2JAX_WITH_VJP_DEPRECATED = (
+    "`torch2jax_with_vjp` is deprecated, use `torch2jax(..., depth=2)` instead."
+)
 
 
 ####################################################################################################
 
 
-def torch2jax_with_vjp(
+def torch2jax(
     torch_fn: Callable,
     *example_args: Any,
+    example_kw: Any | None = None,
     depth: int = 2,
     nondiff_argnums: list | tuple | None = None,
     nondiff_mask: Any | None = None,
     output_shapes: Any | None = None,
     use_zeros: bool = True,
     use_torch_vjp: bool = True,
-    output_sharding_spec: P | None = None,
     vmap_method: str = "sequential",
 ) -> Callable:
-    """Convert a torch function to a jax function and define a custom vjp rule for it up to `depth` recursively deep.
+    """Define a jit-compatible JAX function that calls a PyTorch function, optionally with custom VJP rules.
+
+    For sharding support, use ``torch2jax_without_vjp`` or wrap this function inside ``shard_map``.
 
     Args:
         torch_fn (Callable): Torch function to convert.
         *example_args (Any): Example arguments as tensors or torch-compatible args.
-        depth (int, optional): Max allowed differentiation depth, this is cheap. Defaults to 1.
+        example_kw: Example keyword arguments. Defaults to None. Only supported with depth=0.
+        depth (int, optional): Max allowed differentiation depth. 0 = no VJP. Defaults to 2.
         nondiff_argnums (list | tuple | None, optional): Which (whole) args to not differentiate. Defaults to None.
         nondiff_mask (Any | None, optional): Full arg matching mask. Defaults to None.
         output_shapes (Any | None, optional): Output shapes out of the function, if provided, we never call torch
             function to infer them. Defaults to None.
-        use_zeros (bool, optional): Whether to set gradients of non-diff args to zeros or None. None does not appear to
-            work with JAX currently. Defaults to True.
-        use_torch_vjp (bool, optional): (Not supported, please use inside `shard_map`) Whether to use custom vjp or the
-            one from torch. False means fallback to `torch.autograd.grad` for more compatibility. Some older external
-            library PyTorch code may need this fallback. Defaults to True (i.e., do not use fallback).
-        output_sharding_spec: (not supported) sharding spec of the output, use shard_map instead for a device-local
-            version of this function
+        use_zeros (bool, optional): Whether to set gradients of non-diff args to zeros or None. Defaults to True.
+        use_torch_vjp (bool, optional): Whether to use torch.func.vjp or fallback to torch.autograd.grad.
+            Defaults to True.
         vmap_method: batching method, see
-            [https://docs.jax.dev/en/latest/ffi.html#batching-with-vmap](https://docs.jax.dev/en/latest/ffi.html#batching-with-vmap)
+            `jax ffi docs <https://docs.jax.dev/en/latest/ffi.html#batching-with-vmap>`_.
 
-            NOTE: only vmap_method="sequntial" is supported non-experimentally
+            NOTE: only vmap_method="sequential" is supported non-experimentally
 
             NOTE: try "expand_dims", "broadcast_all" if you want to experiment with pytorch-side batching
     Returns:
@@ -71,42 +72,29 @@ def torch2jax_with_vjp(
 
     Examples:
         >>> import torch, jax
-        >>> from torch2jax import torch2jax_with_vjp, tree_t2j
-        >>> # let's define the torch function and create some example arguments
+        >>> from torch2jax import torch2jax, tree_t2j
         >>> torch_fn = lambda x, y: torch.nn.CrossEntropyLoss()(x, y)
         >>> xt, yt = torch.randn(10, 5), torch.randint(0, 5, (10,))
-        >>> # we can now convert the function to jax using the torch fn and example args
-        >>> jax_fn = torch2jax_with_vjp(torch_fn, xt, yt)
-        >>> jax_fn = jax.jit(jax_fn) # we can jit it too
-        >>> # let's convert the arguments to JAX arrays and call the function
+        >>> jax_fn = torch2jax(torch_fn, xt, yt)
         >>> x, y = tree_t2j((xt, yt))
         >>> jax_fn(x, y)
-        >>> # it works!
 
-        >>> # taking gradients is easy too
-        >>> g_fn = jax.grad(jax_fn, argnums=0)
-        >>> g_fn(x, y).shape
+        >>> # with gradients (depth=2 is the default)
+        >>> jax.grad(lambda x, y: jax_fn(x, y).sum(), argnums=0)(x, y).shape
         (10, 5)
-
-        >>> # creating a more complicated computational graph is of course possible
-        >>> lin_model = lambda z, W, b: z @ W + b
-        >>> z, W, b = tree_t2j([torch.randn((10, 20)), torch.randn(20, 5), torch.randn(5)])
-        >>> gz_fn = jax.grad(lambda z, W, b: jax_fn(lin_model(z, W, b), y), argnums=(1, 2))
-        >>> dW, db = gz_fn(z, W, b)
-        >>> dW.shape, db.shape
-        ((20, 5), (5,))
     """
-    if output_sharding_spec is not None:
-        raise RuntimeError(_ERR_SHARDING_SPEC_UNSUPPORTED)
+    if depth > 0 and example_kw is not None:
+        raise RuntimeError("`example_kw` is not supported with `depth > 0` (VJP path does not support kwargs yet).")
+    _had_output_shapes = output_shapes is not None
 
-    if output_shapes is None:
+    if output_shapes is None and depth > 0:
         outputs = torch_fn(*example_args)
         output_shapes = tree_map(lambda x: ShapeDtypeStruct(dtype=dtype_t2j(x.dtype), shape=x.shape), outputs)
-    fn = torch2jax(
+    fn = _torch2jax(
         torch_fn,
         *example_args,
+        example_kw=example_kw,
         output_shapes=output_shapes,
-        output_sharding_spec=output_sharding_spec,
         vmap_method=vmap_method,
     )
 
@@ -188,7 +176,7 @@ def torch2jax_with_vjp(
             for (x, m) in zip(example_args_flat, nondiff_mask_flat)
         ],
     )
-    bwd_fn = torch2jax_with_vjp(
+    bwd_fn = torch2jax(
         bwd_fn_torch,
         example_args,
         example_outputs,
@@ -209,9 +197,10 @@ def torch2jax_with_vjp(
         if key == _original_vjp_key:
             return fn(*args)
         if key not in _vjp_cache:
-            dummy_flat = [torch.empty(a.shape, dtype=dtype_j2t(a.dtype)) for a in tree_flatten(args)[0]]
+            warn_once(_SHAPE_CHANGE_WARN_EXPLICIT if _had_output_shapes else _SHAPE_CHANGE_WARN_CONCRETE, torch_fn)
+            dummy_flat = [torch.zeros(a.shape, dtype=dtype_j2t(a.dtype)) for a in tree_flatten(args)[0]]
             dummy_args = tree_unflatten(tree_flatten(example_args)[1], dummy_flat)
-            _vjp_cache[key] = torch2jax_with_vjp(
+            _vjp_cache[key] = torch2jax(
                 torch_fn, *dummy_args, depth=depth, nondiff_argnums=nondiff_argnums,
                 nondiff_mask=nondiff_mask, use_zeros=use_zeros, use_torch_vjp=use_torch_vjp,
                 vmap_method=vmap_method,
@@ -219,3 +208,9 @@ def torch2jax_with_vjp(
         return _vjp_cache[key](*args)
 
     return _cached_fn
+
+
+def torch2jax_with_vjp(*args, depth=2, **kw):
+    """Deprecated: use ``torch2jax(..., depth=2)`` instead."""
+    warn_once(_WARN_TORCH2JAX_WITH_VJP_DEPRECATED, torch2jax_with_vjp)
+    return torch2jax(*args, depth=depth, **kw)

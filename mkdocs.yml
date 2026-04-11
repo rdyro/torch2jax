@@ -64,5 +64,6 @@ nav:
     - Data Parallel: examples/data_parallel.md
   - Full API:
     - torch2jax: api/torch2jax.md
-    - torch2jax_with_vjp: api/torch2jax_with_vjp.md
+    - torch2jax_without_vjp: api/torch2jax_without_vjp.md
+    - torch2jax_with_vjp (deprecated): api/torch2jax_with_vjp.md
     - utils: api/utils.md

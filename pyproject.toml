@@ -1,6 +1,6 @@
 [project]
 name = "torch2jax"
-version = "0.7.2"
+version = "0.8.0"
 authors = [
   { name="Robert Dyro", email="robert.dyro@gmail.com" },
 ]
@@ -30,6 +30,7 @@ docs = [
   "mkdocstrings[python]",
   "pymdown-extensions",
   "mdx_truly_sane_lists",
+  "mkdocs-autorefs",
 ]
 
 [tool.setuptools.package-data]

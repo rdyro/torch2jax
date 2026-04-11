@@ -1,5 +1,4 @@
-import sys
-from pathlib import Path
+import itertools
 
 from absl.testing import absltest
 from absl.testing import parameterized
@@ -8,16 +7,20 @@ import jax
 from jax import numpy as jnp
 from jax import Array
 
-paths = [Path(__file__).absolute().parents[1], Path(__file__).absolute().parent]
-for path in paths:
-    if str(path) not in sys.path:
-        sys.path.append(str(path))
-
-from utils import jax_randn  # noqa: E402
-from torch2jax import torch2jax, Size  # noqa: E402
+from torch2jax import torch2jax_without_vjp, Size  # noqa: E402
 from torch2jax.dlpack_passing import tree_j2t  # noqa: E402
 
 ####################################################################################################
+
+randn_keys = None
+
+
+def jax_randn(shape, device, dtype):
+    global randn_keys
+    if randn_keys is None:
+        randn_keys = itertools.cycle(jax.random.split(jax.random.key(0), 1024))
+    device = device if not isinstance(device, str) else jax.devices(device)[0]
+    return jax.device_put(jax.random.normal(next(randn_keys), shape, dtype=dtype), device)
 
 
 class InterfaceTesting(parameterized.TestCase):
@@ -47,13 +50,13 @@ class InterfaceTesting(parameterized.TestCase):
             xt, yt = tree_j2t((x, y))
 
             if method == "no_output_shapes_without_kw":
-                jax_fn = torch2jax(torch_fn, xt, yt)
+                jax_fn = torch2jax_without_vjp(torch_fn, xt, yt)
             elif method == "no_output_shapes_with_kw":
-                jax_fn = torch2jax(torch_fn, xt, example_kw={"y": yt})
+                jax_fn = torch2jax_without_vjp(torch_fn, xt, example_kw={"y": yt})
             elif method == "output_shapes_without_kw":
-                jax_fn = torch2jax(torch_fn, xt, yt, output_shapes=Size(shape))
+                jax_fn = torch2jax_without_vjp(torch_fn, xt, yt, output_shapes=Size(shape))
             elif method == "output_shapes_with_kw":
-                jax_fn = torch2jax(torch_fn, xt, example_kw={"y": yt}, output_shapes=Size(shape))
+                jax_fn = torch2jax_without_vjp(torch_fn, xt, example_kw={"y": yt}, output_shapes=Size(shape))
 
             # non-jit version
             out = jax_fn(x, y=y) if method.endswith("with_kw") else jax_fn(x, y)
@@ -110,13 +113,13 @@ class InterfaceTesting(parameterized.TestCase):
             xt, yt = tree_j2t((x, y))
 
             if method == "no_output_shapes_without_kw":
-                jax_fn = torch2jax(torch_fn, xt, yt)
+                jax_fn = torch2jax_without_vjp(torch_fn, xt, yt)
             elif method == "no_output_shapes_with_kw":
-                jax_fn = torch2jax(torch_fn, xt, example_kw={"y": yt})
+                jax_fn = torch2jax_without_vjp(torch_fn, xt, example_kw={"y": yt})
             elif method == "output_shapes_without_kw":
-                jax_fn = torch2jax(torch_fn, xt, yt, output_shapes=output_shapes)
+                jax_fn = torch2jax_without_vjp(torch_fn, xt, yt, output_shapes=output_shapes)
             elif method == "output_shapes_with_kw":
-                jax_fn = torch2jax(torch_fn, xt, example_kw={"y": yt}, output_shapes=output_shapes)
+                jax_fn = torch2jax_without_vjp(torch_fn, xt, example_kw={"y": yt}, output_shapes=output_shapes)
 
             x = jax_randn(shape, device=device, dtype=dtype)
             y = jax_randn(shape, device=device, dtype=dtype).reshape(-1)

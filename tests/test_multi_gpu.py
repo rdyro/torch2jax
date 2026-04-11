@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
 
 import os
-import functools
+from functools import partial
 from pathlib import Path
-import sys
 import math
 
 os.environ["XLA_FLAGS"] = "--xla_force_host_platform_device_count=4"
@@ -12,21 +11,16 @@ from absl.testing import absltest, parameterized
 import jax
 from jax import numpy as jnp
 from jax import random
-from jax.sharding import NamedSharding as NS, PartitionSpec as P, Mesh, SingleDeviceSharding as SDS
-from jax.experimental.shard_map import shard_map
+from jax.sharding import NamedSharding as NS, PartitionSpec as P, SingleDeviceSharding as SDS
+from jax import shard_map
 import numpy as np
 import torch
 from torch import Tensor
 
-from torch2jax import torch2jax
-from torch2jax import Size, dtype_t2j, tree_t2j, tree_j2t, t2j, j2t
+from torch2jax import torch2jax_without_vjp
+from torch2jax import Size, tree_t2j, j2t
 
 WRITE_PROFILE = False
-
-paths = [Path(__file__).absolute().parents[1], Path(__file__).absolute().parent]
-for path in paths:
-    if str(path) not in sys.path:
-        sys.path.append(str(path))
 
 
 def torch_fn(a, b, simulate_compute: bool = False):
@@ -41,10 +35,10 @@ def _generate_data(seed: int, size0: int, size1: int, devices):
     size1 = math.floor(size1 / len(devices)) * len(devices)
     shape = (size0, size1)
     dtype = jnp.float32
-    mesh = jax.make_mesh((len(devices),), P("x"), devices=devices)
+    mesh = jax.make_mesh((len(devices),), ("x",), devices=devices)
     sharding = NS(mesh, P("x", None))
 
-    @functools.partial(jax.jit, out_shardings=(sharding, sharding))
+    @partial(jax.jit, out_shardings=(sharding, sharding))
     def _gen_data():
         keyit = iter(random.split(random.key(seed), 1024))
         a = jax.random.normal(next(keyit), shape)
@@ -77,9 +71,9 @@ class MultiDeviceTest(parameterized.TestCase):
         spec = sharding.spec
 
         @jax.jit
-        @functools.partial(shard_map, mesh=mesh, in_specs=(spec, spec), out_specs=spec, check_rep=False)
+        @partial(shard_map, mesh=mesh, in_specs=(spec, spec), out_specs=spec)
         def fn_(a, b):
-            jax_fn = torch2jax(functools.partial(torch_fn, simulate_compute=simulate_compute), a, b, output_shapes=a)
+            jax_fn = torch2jax_without_vjp(partial(torch_fn, simulate_compute=simulate_compute), a, b, output_shapes=a)
             return jax_fn(a, b)
 
         c = fn_(a, b)
@@ -99,7 +93,10 @@ class MultiDeviceTest(parameterized.TestCase):
         c = _to_device0(c, mesh.devices)
         np.testing.assert_allclose(np.array(c_torch), np.array(c))
 
-    def test_pmap(self):
+    @parameterized.product(
+        seed=[0, 1, 2], device=["cpu", "cuda"], size0=[256], size1=[8, 16], simulate_compute=[True, False]
+    )
+    def test_pmap(self, seed, device, size0, size1, simulate_compute):
         self.skipTest("`pmap` doesn't work (just hangs), TODO(rdyro): more debugging needed")
 
         if not torch.cuda.is_available() and device == "cuda":
@@ -108,7 +105,9 @@ class MultiDeviceTest(parameterized.TestCase):
 
         fn_ = jax.jit(
             jax.pmap(
-                torch2jax(torch_fn, a[0, ...], b[0, ...], output_shapes=jax.ShapeDtypeStruct(a.shape[1:], a.dtype)),
+                torch2jax_without_vjp(
+                    torch_fn, a[0, ...], b[0, ...], output_shapes=jax.ShapeDtypeStruct(a.shape[1:], a.dtype)
+                ),
                 in_axes=(0, 0),
                 out_axes=0,
                 devices=mesh.devices.reshape(-1),
@@ -137,8 +136,8 @@ class MultiDeviceTest(parameterized.TestCase):
             size0, size1 = 1024 * len(jax.devices(device)), 1024
         mesh, sharding, shape, (a, b) = _generate_data(seed, size0, size1, devices=jax.devices(device))
 
-        jax_fn = torch2jax(
-            functools.partial(torch_fn, simulate_compute=simulate_compute),
+        jax_fn = torch2jax_without_vjp(
+            partial(torch_fn, simulate_compute=simulate_compute),
             a,
             b,
             output_shapes=a,
@@ -190,7 +189,7 @@ class OldMultiDeviceTest(parameterized.TestCase):
         x = jax.device_put(jnp.zeros(10), device1)
         y = jax.device_put(jnp.zeros(10), device1)
 
-        torchfn = torch2jax(torch_device_11_fn, x, y, output_shapes=Size(x.shape))
+        torchfn = torch2jax_without_vjp(torch_device_11_fn, x, y, output_shapes=Size(x.shape))
         z = torchfn(x, y)
         assert len(z.devices()) == 1 and list(z.devices())[0] == device1
         assert jnp.linalg.norm(z - (x + y)) < 1e-6
@@ -199,7 +198,7 @@ class OldMultiDeviceTest(parameterized.TestCase):
         x = jax.device_put(jnp.zeros(10), device0)
         y = jax.device_put(jnp.zeros(10), device0)
 
-        torchfn = torch2jax(torch_device_00_fn, x, y, output_shapes=Size(x.shape))
+        torchfn = torch2jax_without_vjp(torch_device_00_fn, x, y, output_shapes=Size(x.shape))
         z = torchfn(x, y)
         assert len(z.devices()) == 1 and list(z.devices())[0] == device0
         assert jnp.linalg.norm(z - (x + y)) < 1e-6
@@ -208,7 +207,7 @@ class OldMultiDeviceTest(parameterized.TestCase):
         x = jax.device_put(jnp.zeros(10), device0)
         y = jax.device_put(jnp.zeros(10), device0)
 
-        torchfn = torch2jax(torch_device_xx_fn, x, y, output_shapes=Size(x.shape))
+        torchfn = torch2jax_without_vjp(torch_device_xx_fn, x, y, output_shapes=Size(x.shape))
         z = torchfn(x, y)
         assert len(z.devices()) == 1 and list(z.devices())[0] == device0
         assert jnp.linalg.norm(z - (x + y)) < 1e-6

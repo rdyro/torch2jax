@@ -6,9 +6,9 @@ from pathlib import Path
 import torch
 import torch.nn as nn
 import jax
-from jax.experimental.shard_map import shard_map
+from jax import shard_map
 from jax.sharding import PartitionSpec as P, NamedSharding
-from torch2jax import torch2jax, torch2jax_with_vjp, tree_j2t, tree_t2j
+from torch2jax import torch2jax, tree_j2t, tree_t2j
 
 
 def _setattr(mod, key, delim: str = "."):
@@ -40,7 +40,8 @@ if __name__ == "__main__":
 
     # jax init
     devices = jax.devices("cuda")
-    mesh = jax.make_mesh((len(devices),), P("x"), devices=devices)
+    mesh = jax.make_mesh((len(devices),), ("x",), devices=devices)
+    jax.sharding.set_mesh(mesh)
     params_sharding = NamedSharding(mesh, P())  # fully replicated
     batch_sharding = NamedSharding(mesh, P("x", None))  # sharded along batch
 
@@ -53,24 +54,9 @@ if __name__ == "__main__":
     params_spec = jax.tree.map(lambda _: params_sharding.spec, params)
 
     @jax.jit
-    @functools.partial(
-        shard_map,
-        mesh=mesh,
-        in_specs=(batch_sharding.spec, params_spec),
-        out_specs=batch_sharding.spec,
-        check_rep=False,
-    )
+    @functools.partial(shard_map, out_specs=batch_sharding.spec)
     def fwd_fn(x, params):
-        return torch2jax_with_vjp(call_model_torch, x, params, output_shapes=x[:, :16])(x, params)
-
-    y = fwd_fn(x, params)
-
-    # OR using JIT (but without gradients)
-    fwd_fn = jax.jit(
-        torch2jax(
-            call_model_torch, x, params, output_shapes=x[:, :16], output_sharding_spec=P("x", None)
-        )
-    )
+        return torch2jax(call_model_torch, x, params, output_shapes=x[:, :16])(x, params)
 
     y = fwd_fn(x, params)
 

@@ -1,18 +1,12 @@
 from __future__ import annotations
 
-import sys
 from typing import Callable, Any
-from pathlib import Path
 
 import jax
 from jax import ShapeDtypeStruct
 import torch
 from torch import Tensor
 from jax.tree_util import tree_map
-
-root_path = Path(__file__).absolute().parents[1]
-if str(root_path) not in sys.path:
-    sys.path.append(str(root_path))
 
 from torch2jax.utils import dtype_t2j
 

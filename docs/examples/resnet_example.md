@@ -17,7 +17,7 @@ import jax
 from jax import numpy as jnp
 import optax
 
-from torch2jax import tree_t2j, torch2jax_with_vjp, tree_j2t, t2j, j2t
+from torch2jax import tree_t2j, torch2jax, tree_j2t, t2j, j2t
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 device_jax = jax.devices(device.type)[0]
@@ -61,7 +61,7 @@ def torch_fwd_fn(params, buffers, input):
 Xt, yt = next(iter(dl_torch))
 nondiff_argnums = (1, 2)  # buffers, input
 jax_fwd_fn = jax.jit(
-    torch2jax_with_vjp(torch_fwd_fn, params, buffers, Xt, nondiff_argnums=nondiff_argnums)
+    torch2jax(torch_fwd_fn, params, buffers, Xt, nondiff_argnums=nondiff_argnums)
 )
 params_jax, buffers_jax = tree_t2j(params), tree_t2j(buffers)
 ```
@@ -71,7 +71,7 @@ params_jax, buffers_jax = tree_t2j(params), tree_t2j(buffers)
 ```python
 Xt, yt = next(iter(dl_torch))
 torch_ce_fn = lambda yp, y: nn.CrossEntropyLoss()(yp, y)
-jax_ce_fn = torch2jax_with_vjp(torch_ce_fn, model(Xt), yt)
+jax_ce_fn = torch2jax(torch_ce_fn, model(Xt), yt)
 
 jax_l_fn = jax.jit(
     lambda params_jax, X, y: jnp.mean(jax_ce_fn(jax_fwd_fn(params_jax, buffers_jax, X), y))
@@ -160,7 +160,7 @@ pprint(errors)
  '1.weight': 0.0}
 </p>
 
-### Train loop 
+### Train loop
 
 This isn't very efficient because torch synchronizes for every batch when called
 from JAX. Train in PyTorch, but you can do inference in JAX fast.
