@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import traceback
 from typing import Callable, Any
 from functools import partial
@@ -7,10 +5,10 @@ from functools import partial
 import torch
 import jax
 from jax import ShapeDtypeStruct
-from jax.tree_util import tree_map, tree_flatten, tree_unflatten
+import numpy as np
 
 from .api import _torch2jax, _SHAPE_CHANGE_WARN_CONCRETE, _SHAPE_CHANGE_WARN_EXPLICIT
-from .utils import _is_floating, dtype_t2j, dtype_j2t, normalize_shapes, warn_once
+from .utils import _is_floating, dtype_t2j, dtype_j2t, normalize_shapes, warn_once, warn_always
 
 _ERR_SHARDING_SPEC_UNSUPPORTED = (
     "`output_sharding_spec` not supported in `torch2jax(depth>0)`, it's somewhat difficult to automatically"
@@ -87,7 +85,7 @@ def torch2jax(
 
     if output_shapes is None and depth > 0:
         outputs = torch_fn(*example_args)
-        output_shapes = tree_map(lambda x: ShapeDtypeStruct(dtype=dtype_t2j(x.dtype), shape=x.shape), outputs)
+        output_shapes = jax.tree.map(lambda x: ShapeDtypeStruct(dtype=dtype_t2j(x.dtype), shape=x.shape), outputs)
     fn = _torch2jax(
         torch_fn,
         *example_args,
@@ -102,7 +100,7 @@ def torch2jax(
 
     # begin defining custom vjp ####################################################################
     fn = jax.custom_vjp(fn)
-    example_args_flat, args_struct = tree_flatten(example_args)
+    example_args_flat, args_struct = jax.tree.flatten(example_args)
 
     # define forward function
     def fwd_fn(*args):
@@ -113,11 +111,11 @@ def torch2jax(
         # assume the user means the entire e.g., 2nd arg if they pass argnums=(2,)
         nondiff_argnums = (nondiff_argnums,) if isinstance(nondiff_argnums, int) else tuple(nondiff_argnums)
         nondiff_mask = [
-            tree_map(lambda _: True, arg) if (i in nondiff_argnums) else tree_map(lambda _: False, arg)
+            jax.tree.map(lambda _: True, arg) if (i in nondiff_argnums) else jax.tree.map(lambda _: False, arg)
             for (i, arg) in enumerate(example_args)
         ]
     if nondiff_mask is not None:
-        nondiff_mask_flat = tree_flatten(nondiff_mask)[0]
+        nondiff_mask_flat = jax.tree.flatten(nondiff_mask)[0]
         assert len(nondiff_mask_flat) == len(example_args_flat), "`nondiff_mask` must match `args`"
         nondiff_mask_flat = [(m or (not _is_floating(arg))) for m, arg in zip(nondiff_mask_flat, example_args_flat)]
     else:
@@ -128,14 +126,14 @@ def torch2jax(
         args_collected_flat, diff_args_flat = [], list(diff_args_flat)
         for arg, m in zip(all_args_flat, nondiff_mask_flat):
             args_collected_flat.append(arg if m else diff_args_flat.pop(0))
-        args_collected = tree_unflatten(args_struct, args_collected_flat)
-        return tree_flatten(torch_fn(*args_collected))[0]
+        args_collected = jax.tree.unflatten(args_struct, args_collected_flat)
+        return jax.tree.flatten(torch_fn(*args_collected))[0]
 
     # define the actual torch VJP function #########################################################
     def bwd_fn_torch(args, gs):
-        args_flat = tree_flatten(args)[0]
+        args_flat = jax.tree.flatten(args)[0]
         diff_args_flat = [arg for (arg, m) in zip(args_flat, nondiff_mask_flat) if not m]
-        gs_flat = tree_flatten(gs)[0]
+        gs_flat = jax.tree.flatten(gs)[0]
 
         # use either torch's vjp or our custom vjp only wrt differentiable arguments ###############
         grads_computed = False
@@ -162,12 +160,12 @@ def torch2jax(
         vjp_vals_flat = []
         for arg, m in zip(args_flat, nondiff_mask_flat):
             vjp_vals_flat.append((None if not use_zeros else 0 * arg) if m else diff_vjp_vals_flat.pop(0))
-        return tree_unflatten(args_struct, vjp_vals_flat)
+        return jax.tree.unflatten(args_struct, vjp_vals_flat)
 
     # construct example outputs out of the bwd_fn (sensitivty wrt args) ############################
     # and next shapes (args, outputs) ##############################################################
     example_outputs = normalize_shapes(output_shapes, example_args)
-    next_output_shapes = tree_unflatten(
+    next_output_shapes = jax.tree.unflatten(
         args_struct,
         [
             ShapeDtypeStruct(dtype=dtype_t2j(x.dtype), shape=x.shape) if (not m or use_zeros) else None
@@ -188,16 +186,18 @@ def torch2jax(
 
     # shape-aware cache for automatic re-wrapping on shape changes
     _vjp_cache = {}
-    _original_vjp_key = tuple((tuple(a.shape), dtype_t2j(a.dtype)) for a in tree_flatten(example_args)[0])
+    _original_vjp_key = tuple((tuple(a.shape), dtype_t2j(a.dtype)) for a in jax.tree.flatten(example_args)[0])
+    format_key = lambda key: ", ".join([f"{np.dtype(k[1]).name}{list(k[0])}" for k in key])
 
     def _cached_fn(*args):
-        key = tuple((tuple(a.shape), a.dtype) for a in tree_flatten(args)[0])
+        key = tuple((tuple(a.shape), a.dtype) for a in jax.tree.flatten(args)[0])
         if key == _original_vjp_key:
             return fn(*args)
         if key not in _vjp_cache:
-            warn_once(_SHAPE_CHANGE_WARN_EXPLICIT if _had_output_shapes else _SHAPE_CHANGE_WARN_CONCRETE, torch_fn)
-            dummy_flat = [torch.zeros(a.shape, dtype=dtype_j2t(a.dtype)) for a in tree_flatten(args)[0]]
-            dummy_args = tree_unflatten(tree_flatten(example_args)[1], dummy_flat)
+            msg = _SHAPE_CHANGE_WARN_EXPLICIT if _had_output_shapes else _SHAPE_CHANGE_WARN_CONCRETE
+            warn_always(msg.format(format_key(_original_vjp_key), format_key(key)))
+            dummy_flat = [torch.zeros(a.shape, dtype=dtype_j2t(a.dtype)) for a in jax.tree.flatten(args)[0]]
+            dummy_args = jax.tree.unflatten(jax.tree.flatten(example_args)[1], dummy_flat)
             _vjp_cache[key] = torch2jax(
                 torch_fn,
                 *dummy_args,

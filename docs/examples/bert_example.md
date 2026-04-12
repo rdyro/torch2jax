@@ -35,7 +35,7 @@ model.eval()
 
 
 def tokenizer_torch(text: list[str]) -> dict[str, Tensor]:
-    encoded = tokenizer(text, padding=True, truncation=True, return_tensors="pt")
+    encoded = tokenizer(text, padding="max_length", truncation=True, return_tensors="pt")
     return {k: v.to(device) for (k, v) in encoded.items()}
 ```
 

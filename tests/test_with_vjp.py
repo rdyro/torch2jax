@@ -5,7 +5,6 @@ import torch
 import jax
 from jax import numpy as jnp, Array
 from jax.nn import softmax
-from jax.tree_util import tree_flatten
 
 from torch2jax import torch2jax_with_vjp, tree_j2t  # noqa: E402
 
@@ -111,7 +110,7 @@ class VJPTests(parameterized.TestCase):
             # no jit
             # J = jax.jacobian(fn_jax, argnums=argnums)(a, b)
             # J_expected = jax.jacobian(jax_fn, argnums=argnums)(a, b)
-            # J_flat, J_expected_flat = tree_flatten(J)[0], tree_flatten(J_expected)[0]
+            # J_flat, J_expected_flat = jax.tree.flatten(J)[0], jax.tree.flatten(J_expected)[0]
             # err = sum(
             #    jnp.linalg.norm(J_flat[i] - J_expected_flat[i]) for i in range(len(J_flat))
             # )
@@ -121,7 +120,7 @@ class VJPTests(parameterized.TestCase):
             # with jit
             J = jax.jit(jax.jacobian(fn_jax, argnums=argnums))(a, b)
             J_expected = jax.jit(jax.jacobian(jax_fn, argnums=argnums))(a, b)
-            J_flat, J_expected_flat = tree_flatten(J)[0], tree_flatten(J_expected)[0]
+            J_flat, J_expected_flat = jax.tree.flatten(J)[0], jax.tree.flatten(J_expected)[0]
             err = sum(jnp.linalg.norm(J_flat[i] - J_expected_flat[i]) for i in range(len(J_flat)))
             msg = f"device:{device} dtype:{dtype} use_torch_vjp:{use_torch_vjp}"
             assert err < 1e-5, msg
@@ -148,7 +147,7 @@ class VJPTests(parameterized.TestCase):
             # no jit
             # H = jax.jacobian(jax.jacobian(fn_jax, argnums=argnums))(a, b)
             # H_expected = jax.jacobian(jax.jacobian(jax_fn, argnums=argnums))(a, b)
-            # H_flat, H_expected_flat = tree_flatten(H)[0], tree_flatten(H_expected)[0]
+            # H_flat, H_expected_flat = jax.tree.flatten(H)[0], jax.tree.flatten(H_expected)[0]
             # err = sum(
             #    jnp.linalg.norm(H_flat[i] - H_expected_flat[i]) for i in range(len(H_flat))
             # )
@@ -158,7 +157,7 @@ class VJPTests(parameterized.TestCase):
             # with jit
             H = jax.jit(jax.jacobian(jax.jacobian(fn_jax, argnums=argnums)))(a, b)
             H_expected = jax.jit(jax.jacobian(jax.jacobian(jax_fn, argnums=argnums)))(a, b)
-            H_flat, H_expected_flat = tree_flatten(H)[0], tree_flatten(H_expected)[0]
+            H_flat, H_expected_flat = jax.tree.flatten(H)[0], jax.tree.flatten(H_expected)[0]
             err = sum(jnp.linalg.norm(H_flat[i] - H_expected_flat[i]) for i in range(len(H_flat)))
             msg = f"device:{device} dtype:{dtype} use_torch_vjp:{use_torch_vjp}"
             assert err < 1e-5, msg

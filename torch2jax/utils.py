@@ -5,7 +5,7 @@ from __future__ import annotations
 import random
 from typing import Any
 from types import ModuleType
-from warnings import warn
+import warnings
 from functools import lru_cache
 
 import torch
@@ -145,7 +145,13 @@ def normalize_shapes(shapes: Any, extra_args: Any | None = None) -> Any:
 @lru_cache
 def warn_once(msg, torch_fn):
     del torch_fn  # used for proper hashing of context for lru_cache
-    warn(msg)
+    warnings.warn(msg)
+
+@lru_cache
+def warn_always(msg):
+    with warnings.catch_warnings():
+        warnings.simplefilter("always")
+        warnings.warn(msg)
 
 
 ####################################################################################################

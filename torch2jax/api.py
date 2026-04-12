@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import math
 import functools
 from typing import Callable, Any
@@ -9,6 +7,7 @@ import torch
 from torch import Tensor
 import jax
 from jax import ShapeDtypeStruct
+import numpy as np
 
 # jax version-friendly way of importing the ffi module in jax
 try:
@@ -20,18 +19,18 @@ from jax.experimental.custom_partitioning import custom_partitioning
 from jax.sharding import NamedSharding, PartitionSpec, Mesh
 
 from .compile import compile_and_import_module
-from .utils import find_unique_id, dtype_t2j, dtype_j2t, normalize_shapes, warn_once
+from .utils import find_unique_id, dtype_t2j, dtype_j2t, normalize_shapes, warn_once, warn_always
 
 zip_ = zip
 zip = functools.partial(zip_, strict=True)
 
 _SHAPE_CHANGE_WARN_EXPLICIT = (
     "torch2jax: input shapes changed, but `output_shapes` was explicitly provided. Output shapes for the new"
-    " inputs will be inferred by running the torch function with `torch.empty` tensors."
+    " inputs will be inferred by running the torch function with `torch.zeros` tensors.\nExpecting: {}\nActual:    {}"
 )
 _SHAPE_CHANGE_WARN_CONCRETE = (
-    "torch2jax: input shapes changed. The torch function will be re-run with `torch.empty` tensors"
-    " (not the original concrete inputs) to infer output shapes for the new input shapes."
+    "torch2jax: input shapes changed. The torch function will be re-run with `torch.zeros` tensors"
+    " (not the original concrete inputs) to infer output shapes for the new input shapes.\nExpecting: {}\nActual:    {}"
 )
 _WARN_OUTPUT_SHAPES_FORMAT = (
     "Please provide all shapes as torch.Size or jax.ShapeDtypeStruct. We'll attempt to guess all"
@@ -256,6 +255,7 @@ def _torch2jax(
         (tuple(a.shape), dtype_t2j(a.dtype))
         for a in jax.tree.leaves((example_args, example_kw) if has_kw else example_args)
     )
+    format_key = lambda key: ", ".join([f"{np.dtype(k[1]).name}{list(k[0])}" for k in key])
 
     # define the actual wrapper function
     def wrapped_fn(*args, **kw):
@@ -270,7 +270,8 @@ def _torch2jax(
         shape_key = tuple((tuple(a.shape), a.dtype) for a in jax.tree.leaves(args))
         if shape_key != _original_shape_key:
             if shape_key not in _cache:
-                warn_once(_SHAPE_CHANGE_WARN_EXPLICIT if _had_output_shapes else _SHAPE_CHANGE_WARN_CONCRETE, fn)
+                msg = _SHAPE_CHANGE_WARN_EXPLICIT if _had_output_shapes else _SHAPE_CHANGE_WARN_CONCRETE
+                warn_always(msg.format(format_key(_original_shape_key), format_key(shape_key)))
                 dummy_flat = [torch.zeros(a.shape, dtype=dtype_j2t(a.dtype)) for a in jax.tree.leaves(args)]
                 dummy_tree = jax.tree.unflatten(input_struct, dummy_flat)
                 opts = dict(output_sharding_spec=output_sharding_spec, vmap_method=vmap_method)
