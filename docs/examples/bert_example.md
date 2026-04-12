@@ -1,10 +1,6 @@
 # Calling BERT model from JAX (with BERT weights in JAX)
 
 ```python
-from __future__ import annotations
-
-import sys
-from pathlib import Path
 import random
 import time
 
@@ -81,11 +77,20 @@ Total error in gradient: 0.0000e+00
 ### Timing the gains over `pure_callback`
 
 ```python
-root_path = Path("").absolute().parent / "tests"
-if str(root_path) not in sys.path:
-    sys.path.append(str(root_path))
+def wrap_torch_fn(fn, output_shapes, device: str = "cpu"):
+    def numpy_fn(*args):
+        args = jax.tree.map(lambda x: torch.as_tensor(x, device=device), args)
+        out = fn(*args)
+        out = (out,) if isinstance(out, Tensor) else tuple(out)
+        out = [z.detach().cpu().numpy() for z in out]
+        return out
 
-from pure_callback_alternative import wrap_torch_fn
+    jax_output_shapes = jax.tree.map(lambda x: jax.ShapeDtypeStruct(x.shape, dtype_t2j(x.dtype)), output_shapes)
+
+    def wrapped_fn(*args):
+        return jax.pure_callback(numpy_fn, jax_output_shapes, *args)
+
+    return wrapped_fn
 ```
 
 ```python

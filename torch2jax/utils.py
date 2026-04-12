@@ -147,6 +147,7 @@ def warn_once(msg, torch_fn):
     del torch_fn  # used for proper hashing of context for lru_cache
     warnings.warn(msg)
 
+
 @lru_cache
 def warn_always(msg):
     with warnings.catch_warnings():
