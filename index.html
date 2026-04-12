@@ -742,9 +742,6 @@ compilation features, requiring minimal configuration.</p>
 </span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>$<span class="w"> </span>python3
 </span><span id="__span-1-4"><a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a>$<span class="w"> </span>&gt;&gt;&gt;<span class="w"> </span>from<span class="w"> </span>wrap_torch2jax<span class="w"> </span>import<span class="w"> </span>torch2jax
 </span></code></pre></div>
-<p>Tested on:
-  - CPU: Python: <code>3.9 3.10 3.11 3.12</code> &amp; JAX Versions <code>0.4.26 0.4.27 0.4.28 0.4.29 0.4.30 0.4.31</code>
-  - CUDA: Python <code>3.9 3.10 3.11 3.12</code> &amp; JAX Versions <code>0.4.30 0.4.31</code></p>
 <h1 id="usage">Usage</h1>
 <p><code>torch2jax</code> is the main entry point. By default it defines gradients (VJP rules
 up to <code>depth=2</code>), so <code>jax.grad</code> works out of the box.</p>
