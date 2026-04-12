@@ -230,6 +230,7 @@ def _torch2jax(
             warn_once(_WARN_OUTPUT_SHAPES_FORMAT, fn)
         output_shapes = normalize_shapes(output_shapes, extra_args=input_shapes)
         output_shapes, output_struct = jax.tree.flatten(output_shapes)
+
     if output_sharding_spec is not None:
         output_sharding_spec_flat, output_sharding_struct = jax.tree.flatten(output_sharding_spec)
         msg = (
@@ -267,7 +268,7 @@ def _torch2jax(
             msg = (_MISMATCH_ARGS_KW_MSG if has_kw else _MISMATCH_ARGS_MSG).format(args, input_struct)
             raise RuntimeError(msg)
 
-        shape_key = tuple((tuple(a.shape), a.dtype) for a in jax.tree.leaves(args))
+        shape_key = tuple((tuple(jax.typeof(a).shape), jax.typeof(a).dtype) for a in jax.tree.leaves(args))
         if shape_key != _original_shape_key:
             if shape_key not in _cache:
                 msg = _SHAPE_CHANGE_WARN_EXPLICIT if _had_output_shapes else _SHAPE_CHANGE_WARN_CONCRETE

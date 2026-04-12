@@ -1,6 +1,6 @@
 [project]
 name = "torch2jax"
-version = "0.8.1"
+version = "0.8.2"
 authors = [
   { name="Robert Dyro", email="robert.dyro@gmail.com" },
 ]

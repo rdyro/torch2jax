@@ -87,11 +87,7 @@ def torch2jax(
         outputs = torch_fn(*example_args)
         output_shapes = jax.tree.map(lambda x: ShapeDtypeStruct(dtype=dtype_t2j(x.dtype), shape=x.shape), outputs)
     fn = _torch2jax(
-        torch_fn,
-        *example_args,
-        example_kw=example_kw,
-        output_shapes=output_shapes,
-        vmap_method=vmap_method,
+        torch_fn, *example_args, example_kw=example_kw, output_shapes=output_shapes, vmap_method=vmap_method
     )
 
     # if this we've reached the requested differentiation depth, refrain from defining a vjp rule ##
@@ -186,18 +182,18 @@ def torch2jax(
 
     # shape-aware cache for automatic re-wrapping on shape changes
     _vjp_cache = {}
-    _original_vjp_key = tuple((tuple(a.shape), dtype_t2j(a.dtype)) for a in jax.tree.flatten(example_args)[0])
+    _original_vjp_key = tuple((tuple(a.shape), dtype_t2j(a.dtype)) for a in jax.tree.leaves(example_args))
     format_key = lambda key: ", ".join([f"{np.dtype(k[1]).name}{list(k[0])}" for k in key])
+    zeros_like = lambda x: torch.zeros(jax.typeof(x).shape, dtype=dtype_j2t(jax.typeof(x).dtype))
 
     def _cached_fn(*args):
-        key = tuple((tuple(a.shape), a.dtype) for a in jax.tree.flatten(args)[0])
+        key = tuple((tuple(jax.typeof(a).shape), jax.typeof(a).dtype) for a in jax.tree.leaves(args))
         if key == _original_vjp_key:
             return fn(*args)
         if key not in _vjp_cache:
             msg = _SHAPE_CHANGE_WARN_EXPLICIT if _had_output_shapes else _SHAPE_CHANGE_WARN_CONCRETE
             warn_always(msg.format(format_key(_original_vjp_key), format_key(key)))
-            dummy_flat = [torch.zeros(a.shape, dtype=dtype_j2t(a.dtype)) for a in jax.tree.flatten(args)[0]]
-            dummy_args = jax.tree.unflatten(jax.tree.flatten(example_args)[1], dummy_flat)
+            dummy_args = jax.tree.map(zeros_like, args)
             _vjp_cache[key] = torch2jax(
                 torch_fn,
                 *dummy_args,
