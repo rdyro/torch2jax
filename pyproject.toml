@@ -6,7 +6,7 @@ authors = [
 ]
 description = "Wrap your PyTorch for JAX! This package allows no-copy PyTorch calling from JAX under both eager execution and JIT."
 readme = "README.md"
-requires-python = ">=3.7"
+requires-python = ">=3.11"
 classifiers = [
     "Programming Language :: Python :: 3",
     "License :: OSI Approved :: MIT License",
@@ -33,11 +33,14 @@ docs = [
   "mkdocs-autorefs",
 ]
 
+[tool.setuptools]
+packages = ["torch2jax"]
+
 [tool.setuptools.package-data]
 torch2jax = ["cpp/*"]
 
 [build-system]
-requires = ["setuptools", "wheel", "toml"]
+requires = ["setuptools", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project.urls]

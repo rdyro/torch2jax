@@ -3,13 +3,12 @@
 import os
 import re
 import sys
+import tomllib
 from argparse import ArgumentParser
 from copy import deepcopy
 from pathlib import Path
 from shutil import copyfile, copytree, rmtree
 from subprocess import check_call
-
-import toml
 
 if __name__ == "__main__":
     # parse arguments ######################################################################
@@ -29,7 +28,7 @@ if __name__ == "__main__":
 
     # create the new package description ##################################################
     root_path = Path(__file__).parents[1].absolute()
-    current_config = toml.loads((root_path / "pyproject.toml").read_text())
+    current_config = tomllib.loads((root_path / "pyproject.toml").read_text())
     new_package_path = Path(__file__).parents[1].absolute() / new_name
     print(f"new_package_path: {new_package_path}")
 
@@ -40,7 +39,7 @@ if __name__ == "__main__":
         rmtree(new_package_path)
 
     # copy files ##########################################################################
-    for path in ["torch2jax", "pyproject.toml", "setup.py", "tests", "README.md", "images"]:
+    for path in ["torch2jax", "pyproject.toml", "tests", "README.md", "images"]:
         src = root_path / path
         dest = new_package_path / path
         if src.is_file():
@@ -54,12 +53,7 @@ if __name__ == "__main__":
     # write new config ####################################################################
     new_config = deepcopy(current_config)
     new_config["project"]["name"] = new_name
-    Path(new_package_path / "pyproject.toml").write_text(toml.dumps(new_config))
-
-    # rewrite the setup.py file
-    setup_py = Path(root_path / "setup.py").read_text()
-    new_setup_py = re.sub(f'name="{old_name}"', f'name="{new_name}"', setup_py)
-    Path(new_package_path / "setup.py").write_text(new_setup_py)
+    Path(new_package_path / "pyproject.toml").write_text(tomllib.dumps(new_config))
 
     # rewrite the README.md file
     README_md = Path(root_path / "README.md").read_text()
