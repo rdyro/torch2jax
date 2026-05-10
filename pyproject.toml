@@ -1,6 +1,6 @@
 [project]
 name = "torch2jax"
-version = "0.8.2"
+version = "0.8.3"
 authors = [
   { name="Robert Dyro", email="robert.dyro@gmail.com" },
 ]
@@ -14,8 +14,8 @@ classifiers = [
 ]
 dependencies = [
   "numpy",
-  "jax",
-  "torch",
+  "jax>=0.7.0",   # somewhat recent JAX
+  "torch>=2.6.0", # free-threading support (pybind11>=2.13)
 ]
 
 [project.optional-dependencies]

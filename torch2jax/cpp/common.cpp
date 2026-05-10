@@ -87,11 +87,17 @@ void apply_torch_call(ffi::RemainingArgs args, ffi::RemainingRets rets,
     4. unwrap the output tensors and copy them to the output buffers
   --------------------------------------------------------------------------- */
 
-  py::gil_scoped_acquire acquire;
-  py::list my_list;
+  // Attach a Python thread state to this thread if it doesn't have one.
+  // XLA FFI calls apply_torch_call from a C++ thread with no PyThreadState;
+  // in free-threading builds this does not acquire any lock — it only
+  // registers the thread with the interpreter (see Python docs:
+  // "C API Extension Support for Free Threading"). Declared first so it is
+  // destroyed last, after all pybind11 objects below.
+  py::gil_scoped_acquire py_guard;
 
   // 1. wrap the input buffers as Torch tensors
   set<int64_t> cuda_device_idxs_seen;
+  PyObject* raw_list = PyList_New(args.size());
   for (int64_t i = 0; i < args.size(); i++) {
     auto arg = args.get<ffi::AnyBuffer>(i).value();
     auto dims = arg.dimensions();
@@ -106,10 +112,9 @@ void apply_torch_call(ffi::RemainingArgs args, ffi::RemainingRets rets,
     auto options = tensor_options(arg.element_type(), device_desc);
 
     torch::Tensor tharray = torch::from_blob(data_ptr, size, options);
-    my_list.append(THPVariable_Wrap(tharray));
+    PyList_SET_ITEM(raw_list, i, THPVariable_Wrap(tharray));
   }
-
-  py::gil_scoped_acquire release;
+  py::list my_list = py::reinterpret_steal<py::list>(raw_list);
 
 #ifdef TORCH2JAX_WITH_CUDA
   if (device_type == torch::kCUDA) {

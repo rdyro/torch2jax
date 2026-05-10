@@ -4,7 +4,7 @@
 #include "gpu_impl.h"
 #include "cpu_impl.h"
 
-PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
+PYBIND11_MODULE(TORCH_EXTENSION_NAME, m, py::mod_gil_not_used()) {
   m.def("cpu_registrations", &CPURegistrations);
   m.def("gpu_registrations", &GPURegistrations);
 }
