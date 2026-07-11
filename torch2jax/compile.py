@@ -30,7 +30,10 @@ def _generate_extension_version() -> str:
     py_abi_tag = sys.abiflags
     py_name_version = f"{py_impl}-{py_version}{py_abi_tag}"
     system_info = f"{platform.system().lower()}-{platform.machine()}"
-    return f"{py_name_version}-{system_info}--jax-{jax.__version__}--torch2jax-{__version__}"
+    # the .so is compiled against torch's libtorch_python + bundled pybind11 ABI, so the torch version
+    # MUST be part of the cache key: upgrading torch (e.g. pybind11 2.x -> 3.0) otherwise silently reuses
+    # an ABI-mismatched .so and breaks the FFI call (e.g. "no interpreter is set").
+    return f"{py_name_version}-{system_info}--jax-{jax.__version__}--torch-{torch.__version__}--torch2jax-{__version__}"
 
 
 def compile_extension(force_recompile: bool = False) -> ModuleType:
