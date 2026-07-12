@@ -4,7 +4,7 @@
 
 <a href="https://rdyro.github.io/torch2jax/">
 <p align="center">
-<img src="images/torch2jax_logo2.png" style="max-width:800px;width:70%;display:block;margin-left:auto;margin-right:auto"/>
+<img src="https://raw.githubusercontent.com/rdyro/torch2jax/main/images/torch2jax_logo2.png" width="70%" style="max-width:800px;width:70%;display:block;margin-left:auto;margin-right:auto"/>
 </p>
 </a>
 <br />
@@ -233,7 +233,7 @@ if __name__ == "__main__":
 ```
 
 <p align="center">
-  <img src="images/data_parallel.png" style="width: 100%; max-width: 1000px; height: auto; max-height: 1000px;">
+  <img src="https://raw.githubusercontent.com/rdyro/torch2jax/main/images/data_parallel.png" width="100%" style="width: 100%; max-width: 1000px; height: auto; max-height: 1000px;">
   <p align="center">Fig: Overlapping torch calls on multiple devices (RTX A4000 x 4)</p>
 </p>
 
@@ -279,7 +279,7 @@ This package achieves a much better performance when calling PyTorch code from
 JAX because it does not copy its input arguments and does not move CUDA data off
 the GPU.
 
-<img src="images/time_difference.png">
+<img src="https://raw.githubusercontent.com/rdyro/torch2jax/main/images/time_difference.png" width="100%">
 
 
 # Current Limitations of `torch2jax`
