@@ -8,6 +8,7 @@ from jax import ShapeDtypeStruct
 import numpy as np
 
 from .api import _torch2jax, _SHAPE_CHANGE_WARN_CONCRETE, _SHAPE_CHANGE_WARN_EXPLICIT
+from .sharding import shard_call, match_vma
 from .utils import (
     _is_floating,
     dtype_t2j,
@@ -19,11 +20,6 @@ from .utils import (
     infer_outputs,
 )
 
-_ERR_SHARDING_SPEC_UNSUPPORTED = (
-    "`output_sharding_spec` not supported in `torch2jax(depth>0)`, it's somewhat difficult to automatically"
-    " define sharding spec for automatically defined vjp functions. As a work-around, please use this function"
-    " inside `shard_map` without specifying `output_sharding_spec` - you don't need to specify the specs there."
-)
 _WARN_VJP_FALLBACK = (
     "`torch.func.vjp` failed on your PyTorch function, e.g., because a custom backward function is defined in the"
     ' old way (see "https://pytorch.org/docs/stable/notes/extending.html") or the function accesses tensor data'
@@ -45,13 +41,15 @@ def torch2jax(
     nondiff_argnums: list | tuple | None = None,
     nondiff_mask: Any | None = None,
     output_shapes: Any | None = None,
+    out_specs: Any | None = None,
     use_zeros: bool = True,
     use_torch_vjp: bool = True,
     vmap_method: str = "sequential",
 ) -> Callable:
     """Define a jit-compatible JAX function that calls a PyTorch function, optionally with custom VJP rules.
 
-    For sharding support, use ``torch2jax_without_vjp`` or wrap this function inside ``shard_map``.
+    Sharding: inside ``jax.shard_map`` the function works as-is (per-shard). For inputs sharded along explicit mesh
+    axes, pass ``out_specs`` to call the torch function per-shard; sharded inputs are never implicitly all-gathered.
 
     Args:
         torch_fn (Callable): Torch function to convert.
@@ -62,6 +60,8 @@ def torch2jax(
         nondiff_mask (Any | None, optional): Full arg matching mask. Defaults to None.
         output_shapes (Any | None, optional): Output shapes out of the function, if provided, we never call torch
             function to infer them. Defaults to None.
+        out_specs: Output PartitionSpec(s) for inputs sharded along explicit mesh axes: the torch function (and its
+            VJP) is then called per-shard inside `jax.shard_map` over those axes. Defaults to None.
         use_zeros (bool, optional): Whether to set gradients of non-diff args to zeros or None. Defaults to True.
         use_torch_vjp (bool, optional): Whether to use torch.func.vjp or fallback to torch.autograd.grad.
             Defaults to True.
@@ -95,7 +95,12 @@ def torch2jax(
         outputs = infer_outputs(torch_fn, example_args)
         output_shapes = jax.tree.map(lambda x: ShapeDtypeStruct(dtype=dtype_t2j(x.dtype), shape=x.shape), outputs)
     fn = _torch2jax(
-        torch_fn, *example_args, example_kw=example_kw, output_shapes=output_shapes, vmap_method=vmap_method
+        torch_fn,
+        *example_args,
+        example_kw=example_kw,
+        output_shapes=output_shapes,
+        out_specs=out_specs if depth <= 0 else None,  # for depth > 0, sharding is handled around the custom_vjp
+        vmap_method=vmap_method,
     )
 
     # if this we've reached the requested differentiation depth, refrain from defining a vjp rule ##
@@ -199,18 +204,23 @@ def torch2jax(
     format_key = lambda key: ", ".join([f"{np.dtype(k[1]).name}{list(k[0])}" for k in key])
     torch_dtypes = [x.dtype if isinstance(x, torch.Tensor) else None for x in example_args_flat]
 
-    def _cached_fn(*args):
+    def local_call(args, to_local: Callable | None):
+        # common varying manual axes before custom_vjp: AD transposes this cast into a psum for replicated inputs
+        args = match_vma(args)
         key = shape_key(args)
         if key == _original_vjp_key:
             return fn(*args)
         if key not in _vjp_cache:
-            msg = _SHAPE_CHANGE_WARN_EXPLICIT if _had_output_shapes else _SHAPE_CHANGE_WARN_CONCRETE
-            warn_always(msg.format(format_key(_original_vjp_key), format_key(key)))
+            if to_local is None:  # per-shard shapes are expected to differ from the global example shapes
+                msg = _SHAPE_CHANGE_WARN_EXPLICIT if _had_output_shapes else _SHAPE_CHANGE_WARN_CONCRETE
+                warn_always(msg.format(format_key(_original_vjp_key), format_key(key)))
             dummy_flat = [placeholder_like(a, dt) for a, dt in zip(jax.tree.leaves(args), torch_dtypes)]
             dummy_args = jax.tree.unflatten(jax.tree.structure(args), dummy_flat)
+            split = _had_output_shapes and to_local is not None  # split the global output shapes, don't run fn
             _vjp_cache[key] = torch2jax(
                 torch_fn,
                 *dummy_args,
+                output_shapes=to_local(example_outputs) if split else None,
                 depth=depth,
                 nondiff_argnums=nondiff_argnums,
                 nondiff_mask=nondiff_mask,
@@ -220,7 +230,7 @@ def torch2jax(
             )
         return _vjp_cache[key](*args)
 
-    return _cached_fn
+    return lambda *args: shard_call(local_call, args, out_specs)
 
 
 def torch2jax_with_vjp(*args, depth=2, **kw):

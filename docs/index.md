@@ -168,68 +168,50 @@ Caveats:
 
 # Multi-GPU support
 
-`torch2jax` supports efficient multi-GPU calling. The **recommended** approach
-is `shard_map` — each shard sees single-device data, so you can use `torch2jax`
-directly (with full gradient support).
+`torch2jax` follows JAX's explicit sharding model. A PyTorch function is opaque
+to JAX, so `torch2jax` **never implicitly all-gathers sharded inputs**:
+
+- **explicit mesh axes** (the `jax.make_mesh` default in recent JAX, otherwise pass
+  `axis_types=(AxisType.Explicit,) * n`) &mdash; pass `out_specs=`
+  and the torch function is called per-shard, inside a `jax.shard_map` that is
+  manual only over the mesh axes the inputs are sharded along (`in_specs` are
+  read from the input types). `output_shapes`, if given, are global and are split
+  per-shard by `out_specs`. Without `out_specs`, sharded inputs raise an error;
+  replicate them explicitly (`jax.sharding.reshard(x, P())`) to call the torch
+  function on the full arrays instead. `out_specs` over Auto mesh axes raises an
+  error, since XLA would silently all-gather the inputs.
+- **inside `jax.shard_map`** (manual axes) &mdash; call `torch2jax` as usual, the
+  torch function sees the local shards. Gradients type-check with the default
+  `check_vma=True`, and cotangents of replicated inputs (e.g., parameters) are
+  `psum`-ed automatically.
+
+Gradients work in both cases.
 
 ```python
-import functools
-import copy
-
 import torch
-import torch.nn as nn
 import jax
-from jax import shard_map
 from jax.sharding import PartitionSpec as P, NamedSharding
-from torch2jax import torch2jax, tree_t2j
+from torch2jax import torch2jax
 
+model = torch.nn.Sequential(torch.nn.Linear(1024, 1024), torch.nn.SiLU(), torch.nn.Linear(1024, 16))
+params = {k: jax.numpy.asarray(v.detach().numpy()) for k, v in model.named_parameters()}
+call_model = lambda x, params: torch.func.functional_call(model, params, x)
 
-def _setattr(mod, key, delim: str = "."):
-    if delim not in key:
-        setattr(mod, key, None)
-    else:
-        key, key_remaining = key.split(delim, 1)
-        _setattr(getattr(mod, key), key_remaining, delim=delim)
+mesh = jax.make_mesh((jax.device_count(),), ("x",))  # explicit axes by default
+params = jax.device_put(params, NamedSharding(mesh, P()))  # replicated
+x = jax.device_put(jax.numpy.ones((128, 1024)), NamedSharding(mesh, P("x")))  # sharded along the batch
 
+# 1. explicit sharding: the torch function runs per-shard, the output is sharded along "x"
+fwd_fn = torch2jax(call_model, x, params, out_specs=P("x"))
+with jax.set_mesh(mesh):
+    y = jax.jit(fwd_fn)(x, params)
+    grads = jax.jit(jax.grad(lambda params: jax.numpy.sum(fwd_fn(x, params) ** 2)))(params)
 
-def _strip_model(model):
-    for key in dict(model.named_parameters()).keys():
-        _setattr(model, key, delim=".")
-
-
-if __name__ == "__main__":
-    model = nn.Sequential(nn.Linear(1024 * 1024, 1024), nn.SiLU(), nn.Linear(1024, 16)).to("cuda:0")
-    params = dict(model.named_parameters())
-    [p.requires_grad_(False) for p in params.values()]
-    _strip_model(model)
-
-    def call_model_torch(x, params):
-        ys = []
-        for _ in range(30):
-            local_model_skeleton = copy.deepcopy(model)
-            ys.append(torch.func.functional_call(local_model_skeleton, params, x))
-        return sum(ys)
-
-    devices = jax.devices("cuda")
-    mesh = jax.make_mesh((len(devices),), P("x"), devices=devices)
-    jax.sharding.set_mesh(mesh)
-    params_sharding = NamedSharding(mesh, P())  # fully replicated
-    batch_sharding = NamedSharding(mesh, P("x", None))  # sharded along batch
-
-    x = jax.jit(
-        lambda: jax.random.normal(jax.random.key(0), (128, 1024 * 1024)),
-        out_shardings=batch_sharding,
-    )()
-
-    params = jax.tree.map(lambda p: jax.device_put(p, params_sharding), tree_t2j(params))
-    params_spec = jax.tree.map(lambda _: params_sharding.spec, params)
-
-    @jax.jit
-    @functools.partial(shard_map, out_specs=batch_sharding.spec)
-    def fwd_fn(x, params):
-        return torch2jax(call_model_torch, x, params, output_shapes=x[:, :16])(x, params)
-
-    y = fwd_fn(x, params)
+# 2. or inside shard_map, where the torch function sees the local shards
+@jax.jit
+@jax.shard_map(mesh=mesh, in_specs=(P("x"), P()), out_specs=P("x"))
+def fwd_fn_shard_map(x, params):
+    return torch2jax(call_model, x, params)(x, params)
 ```
 
 <p align="center">

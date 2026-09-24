@@ -1,17 +1,14 @@
 #!/usr/bin/env python3
 
-import os
 from functools import partial
 from pathlib import Path
 import math
-
-os.environ["XLA_FLAGS"] = "--xla_force_host_platform_device_count=4"
 
 from absl.testing import absltest, parameterized
 import jax
 from jax import numpy as jnp
 from jax import random
-from jax.sharding import NamedSharding as NS, PartitionSpec as P, SingleDeviceSharding as SDS
+from jax.sharding import NamedSharding as NS, PartitionSpec as P, SingleDeviceSharding as SDS, AxisType
 from jax import shard_map
 import numpy as np
 import torch
@@ -35,7 +32,7 @@ def _generate_data(seed: int, size0: int, size1: int, devices):
     size1 = math.floor(size1 / len(devices)) * len(devices)
     shape = (size0, size1)
     dtype = jnp.float32
-    mesh = jax.make_mesh((len(devices),), ("x",), devices=devices)
+    mesh = jax.make_mesh((len(devices),), ("x",), axis_types=(AxisType.Explicit,), devices=devices)
     sharding = NS(mesh, P("x", None))
 
     @partial(jax.jit, out_shardings=(sharding, sharding))
@@ -62,7 +59,7 @@ class MultiDeviceTest(parameterized.TestCase):
         seed=[0, 1, 2], device=["cpu", "cuda"], size0=[256], size1=[8, 16], simulate_compute=[True, False]
     )
     def test_shard_map(self, seed: int, size0, size1, device, simulate_compute):
-        if not torch.cuda.is_available() and device == "cuda":
+        if device == "cuda" and (not torch.cuda.is_available() or jax.default_backend() != "gpu"):
             self.skipTest("CUDA not available, skipping CUDA test")
         if simulate_compute and device == "cuda":
             size0, size1 = 1024 * len(jax.devices(device)), 1024
@@ -99,7 +96,7 @@ class MultiDeviceTest(parameterized.TestCase):
     def test_pmap(self, seed, device, size0, size1, simulate_compute):
         self.skipTest("`pmap` doesn't work (just hangs), TODO(rdyro): more debugging needed")
 
-        if not torch.cuda.is_available() and device == "cuda":
+        if device == "cuda" and (not torch.cuda.is_available() or jax.default_backend() != "gpu"):
             self.skipTest("CUDA not available, skipping CUDA test")
         mesh, sharding, shape, (a, b) = _generate_data(seed, devices=jax.devices(device))
 
@@ -130,7 +127,7 @@ class MultiDeviceTest(parameterized.TestCase):
         seed=[0, 1, 2], device=["cpu", "cuda"], size0=[1024, 16], size1=[1024, 16], simulate_compute=[True, False]
     )
     def test_auto_partitioning(self, seed, size0, size1, device, simulate_compute):
-        if not torch.cuda.is_available() and device == "cuda":
+        if device == "cuda" and (not torch.cuda.is_available() or jax.default_backend() != "gpu"):
             self.skipTest("CUDA not available, skipping CUDA test")
         if simulate_compute and device == "cuda":
             size0, size1 = 1024 * len(jax.devices(device)), 1024
@@ -141,11 +138,12 @@ class MultiDeviceTest(parameterized.TestCase):
             a,
             b,
             output_shapes=a,
-            output_sharding_spec=sharding.spec,
+            out_specs=sharding.spec,
         )
         fn_ = jax.jit(jax_fn)
 
-        c = fn_(a, b)
+        with jax.set_mesh(mesh):
+            c = fn_(a, b)
         if WRITE_PROFILE and simulate_compute and device == "cuda" and not self.profiled_svd_compute_jax_jit:
             with jax.profiler.trace(str(Path("/tmp/torch2jax-profiles/jax-jit"))):
                 for _ in range(3):
@@ -157,7 +155,7 @@ class MultiDeviceTest(parameterized.TestCase):
 
         print("result sharding =")
         jax.debug.visualize_array_sharding(c)
-        # self.assertEqual(c.sharding, sharding)  # TODO(rdyro): this is working, but sets wrong sharding?
+        self.assertEqual(c.sharding, sharding)
         c = _to_device0(c)
         np.testing.assert_allclose(np.array(c_torch), np.array(c))
 

@@ -1,4 +1,3 @@
-import math
 import functools
 from typing import Callable, Any
 from inspect import signature
@@ -15,12 +14,12 @@ try:
 except ImportError:
     from jax.extend import ffi
 
-from jax.experimental.custom_partitioning import custom_partitioning
-from jax.sharding import NamedSharding, PartitionSpec, Mesh
+from jax.sharding import PartitionSpec
 
 from .compile import compile_and_import_module
 from .utils import find_unique_id, dtype_t2j, dtype_j2t, normalize_shapes, warn_once, warn_always
 from .utils import canonical_dtype, shape_key, placeholder_like, infer_outputs
+from .sharding import shard_call, match_vma, union_vma
 
 zip_ = zip
 zip = functools.partial(zip_, strict=True)
@@ -38,6 +37,7 @@ _WARN_OUTPUT_SHAPES_FORMAT = (
     " containers with only integer entries are shapes (for compatibility), but this is very error-prone."
 )
 _MISMATCH_ARGS_KW_MSG = "Provided (args, kw) =\n{} do not match the torch2jax function's expected input structure =\n{}"
+_WARN_OUTPUT_SHARDING_SPEC_DEPRECATED = "`output_sharding_spec` is deprecated, use `out_specs` instead."
 _MISMATCH_ARGS_MSG = "Provided args =\n{} do not match the torch2jax function's expected input structure =\n{}"
 
 
@@ -58,7 +58,6 @@ def _torch2jax_flat(
     fn: Callable,
     input_shapes: list[jax.Array | Tensor | ShapeDtypeStruct] = None,
     output_shapes: list[jax.Array | Tensor | ShapeDtypeStruct] = None,
-    output_sharding_spec: PartitionSpec | None = None,
     vmap_method: str = "sequential",
 ) -> Callable:
     """Define a jit-compatible JAX function that calls a PyTorch function. Flat
@@ -68,7 +67,6 @@ def _torch2jax_flat(
         fn (Callable): PyTorch function.
         example_args: Example arguments. Defaults to None.
         output_shapes: Output shapes (or shapes with dtype). Defaults to None.
-        output_sharding_spec: jax.sharding.PartitionSpec specifying the sharding spec of the output, uses input mesh.
     Returns:
         Callable: Wrapped jit-compatible jax function.
     """
@@ -76,9 +74,6 @@ def _torch2jax_flat(
     _ = compile_and_import_module()
     id = find_unique_id()
 
-    inshapes = None
-    if input_shapes is not None:
-        inshapes = jax.tree.map(lambda x: ShapeDtypeStruct(x.shape, dtype_t2j(x.dtype)), input_shapes)
     assert output_shapes is not None, "`output_shapes` cannot be None"
     outshapes = jax.tree.map(lambda x: ShapeDtypeStruct(x.shape, canonical_dtype(x.dtype)), output_shapes)
     out_dtypes = [dtype_j2t(x.dtype) for x in jax.tree.leaves(outshapes)]
@@ -98,63 +93,7 @@ def _torch2jax_flat(
 
     @jax.jit
     def wrapped_flat_fn(*args_flat):
-        nonlocal inshapes, outshapes
-        fn_ = _gen_ffi_call(outshapes, vmap_method=vmap_method)
-
-        if output_sharding_spec is None:
-            fn_id = f"{id:d}"
-            return fn_(*args_flat, fn_id=fn_id)
-
-        jax.config.update("jax_use_shardy_partitioner", False)  # TODO: a temporary workaround for JAX 0.7.0+
-
-        @functools.partial(custom_partitioning, static_argnums=(0,))
-        def partitioned_f(fn_id: str, *args_flat):
-            assert fn_id is not None
-            return fn_(*args_flat, fn_id=fn_id)
-
-        def infer_sharding(fn_id, mesh, args_info, result_info):
-            del fn_id
-            assert len(args_info) > 0
-            result_sharding = jax.tree.map(lambda r, spec: NamedSharding(mesh, spec), result_info, output_sharding_spec)
-            return result_sharding
-
-        def fn_partition(fn_id, mesh: Mesh, args_info, result_info):
-            args_sharding = jax.tree.map(lambda x: x.sharding, args_info)
-            result_sharding = infer_sharding(fn_id, mesh, args_info, result_info)
-
-            def _partitioned_fn_(*args_flat, fn_id=fn_id):
-                axis_sizes = dict(zip(mesh.axis_names, mesh.device_ids.shape))
-                for arg_info, arg in zip(jax.tree.leaves(args_info), jax.tree.leaves(args_flat)):
-                    for s_all, s_part, axis in zip(arg_info.shape, arg.shape, arg_info.sharding.spec):
-                        if axis is None:
-                            continue
-                        axes = axis if isinstance(axis, (list, tuple)) else [axis]
-                        div = math.prod(axis_sizes[ax] for ax in axes)
-                        assert s_part * div == s_all
-
-                def _map_outshape(outshape: jax.ShapeDtypeStruct, result_info, result_sharding):
-                    new_outshape = []
-                    spec = tuple(result_sharding.spec)
-                    assert len(spec) == len(outshape.shape)
-                    for s, axis in zip(outshape.shape, spec):
-                        if axis is None:
-                            new_outshape.append(s)
-                        else:
-                            axes = axis if isinstance(axis, (list, tuple)) else [axis]
-                            div = math.prod(axis_sizes[ax] for ax in axes)
-                            new_outshape.append(s // div)
-                    return jax.ShapeDtypeStruct(new_outshape, dtype=outshape.dtype)
-
-                new_outshapes = jax.tree.map(_map_outshape, outshapes, result_info, result_sharding)
-                fn_part_ = _gen_ffi_call(new_outshapes, vmap_method=vmap_method)
-                return fn_part_(*args_flat, fn_id=fn_id)
-
-            return mesh, _partitioned_fn_, result_sharding, args_sharding
-
-        fn_id = f"{id:d}"
-
-        partitioned_f.def_partition(infer_sharding_from_operands=infer_sharding, partition=fn_partition)
-        return partitioned_f(fn_id, *args_flat)
+        return _gen_ffi_call(outshapes, vmap_method=vmap_method)(*args_flat, fn_id=f"{id:d}")
 
     return wrapped_flat_fn
 
@@ -164,8 +103,9 @@ def _torch2jax(
     *example_args: Any,
     example_kw: Any | None = None,
     output_shapes: Any = None,
-    output_sharding_spec: PartitionSpec | None = None,
+    out_specs: Any | None = None,
     vmap_method: str = "sequential",
+    output_sharding_spec: PartitionSpec | None = None,
 ) -> Callable:
     """Define a jit-compatible JAX function that calls a PyTorch function.  Arbitrary nesting of
     arguments and outputs is supported.
@@ -175,13 +115,16 @@ def _torch2jax(
         *example_args (Any): Example arguments as tensors or torch-compatible args.
         example_kw: Example keyword arguments. Defaults to None.
         output_shapes: Output shapes or shapes + dtype struct. Defaults to None.
-        output_sharding_spec: jax.sharding.PartitionSpec specifying the sharding spec of the output, uses input mesh.
+        out_specs: Output PartitionSpec(s) (a prefix of the output tree) for inputs sharded along explicit mesh axes.
+            The torch function is then called per-shard inside `jax.shard_map` over those axes, with in_specs taken
+            from the input shardings. Without `out_specs`, inputs sharded along explicit axes raise an error.
         vmap_method: batching method, see
             [https://docs.jax.dev/en/latest/ffi.html#batching-with-vmap](https://docs.jax.dev/en/latest/ffi.html#batching-with-vmap)
 
             NOTE: only vmap_method="sequntial" is supported non-experimentally
 
             NOTE: try "expand_dims", "broadcast_all" if you want to experiment with pytorch-side batching
+        output_sharding_spec: Deprecated alias for `out_specs`.
     Returns:
         Callable: JIT-compatible JAX function.
 
@@ -200,6 +143,9 @@ def _torch2jax(
         >>> # it works!
     """
 
+    if output_sharding_spec is not None:
+        warn_once(_WARN_OUTPUT_SHARDING_SPEC_DEPRECATED, fn)
+        out_specs = output_sharding_spec if out_specs is None else out_specs
     # check for presence of example_args and example_kw
     _had_output_shapes = output_shapes is not None
     has_kw = example_kw is not None
@@ -242,22 +188,11 @@ def _torch2jax(
         output_shapes = normalize_shapes(output_shapes, extra_args=input_shapes)
         output_shapes, output_struct = jax.tree.flatten(output_shapes)
 
-    if output_sharding_spec is not None:
-        output_sharding_spec_flat, output_sharding_struct = jax.tree.flatten(output_sharding_spec)
-        msg = (
-            "When providing `output_shading_spec` its structure must match the structure of `output_shapes`."
-            f"\nExpected: {output_struct}\n Actual:   {output_sharding_struct}"
-        )
-        assert jax.tree.structure(output_sharding_spec) == output_struct, msg
-    else:
-        output_sharding_spec_flat, output_sharding_struct = None, None
-
     # define the wrapped function using flat interface
     wrapped_fn_flat = _torch2jax_flat(
         flat_fn,
         input_shapes=None,
         output_shapes=output_shapes,
-        output_sharding_spec=output_sharding_spec_flat,
         vmap_method=vmap_method,
     )
 
@@ -265,6 +200,25 @@ def _torch2jax(
     _cache = {}
     _original_shape_key = shape_key(example_inputs)
     format_key = lambda key: ", ".join([f"{np.dtype(k[1]).name}{list(k[0])}" for k in key])
+
+    def local_call(args, to_local: Callable | None):
+        key = shape_key(args)
+        if key != _original_shape_key:
+            if key not in _cache:
+                if to_local is None:  # per-shard shapes are expected to differ from the global example shapes
+                    msg = _SHAPE_CHANGE_WARN_EXPLICIT if _had_output_shapes else _SHAPE_CHANGE_WARN_CONCRETE
+                    warn_always(msg.format(format_key(_original_shape_key), format_key(key)))
+                dummy_flat = [placeholder_like(a, dt) for a, dt in zip(jax.tree.leaves(args), torch_dtypes)]
+                dummy_tree = jax.tree.unflatten(input_struct, dummy_flat)
+                dummy_args, dummy_kw = dummy_tree if has_kw else (dummy_tree, None)
+                opts = dict(example_kw=dummy_kw, vmap_method=vmap_method)
+                if _had_output_shapes and to_local is not None:  # split the global output shapes, don't run fn
+                    opts["output_shapes"] = to_local(jax.tree.unflatten(output_struct, output_shapes))
+                _cache[key] = _torch2jax(fn, *dummy_args, **opts)
+            return _cache[key](*args[0], **args[1]) if has_kw else _cache[key](*args)
+        vma = union_vma(args)  # inside shard_map, the FFI call needs inputs and outputs varying along the same axes
+        ret = wrapped_fn_flat(*match_vma(jax.tree.leaves(args), vma))
+        return jax.tree.unflatten(output_struct, match_vma(ret, vma))
 
     # define the actual wrapper function
     def wrapped_fn(*args, **kw):
@@ -275,21 +229,7 @@ def _torch2jax(
         if jax.tree.structure(args) != input_struct:
             msg = (_MISMATCH_ARGS_KW_MSG if has_kw else _MISMATCH_ARGS_MSG).format(args, input_struct)
             raise RuntimeError(msg)
-
-        key = shape_key(args)
-        if key != _original_shape_key:
-            if key not in _cache:
-                msg = _SHAPE_CHANGE_WARN_EXPLICIT if _had_output_shapes else _SHAPE_CHANGE_WARN_CONCRETE
-                warn_always(msg.format(format_key(_original_shape_key), format_key(key)))
-                dummy_flat = [placeholder_like(a, dt) for a, dt in zip(jax.tree.leaves(args), torch_dtypes)]
-                dummy_tree = jax.tree.unflatten(input_struct, dummy_flat)
-                opts = dict(output_sharding_spec=output_sharding_spec, vmap_method=vmap_method)
-                dummy_args, dummy_kw = dummy_tree if has_kw else (dummy_tree, None)
-                _cache[key] = _torch2jax(fn, *dummy_args, example_kw=dummy_kw, **opts)
-            return _cache[key](*args[0], **args[1]) if has_kw else _cache[key](*args)
-
-        ret = wrapped_fn_flat(*jax.tree.leaves(args))
-        return jax.tree.unflatten(output_struct, ret)
+        return shard_call(local_call, args, out_specs)
 
     return wrapped_fn
 
