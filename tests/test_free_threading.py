@@ -1,5 +1,6 @@
 import subprocess
 import sys
+import sysconfig
 import textwrap
 
 from absl.testing import absltest
@@ -7,9 +8,9 @@ from absl.testing import absltest
 
 class FreeThreadingTest(absltest.TestCase):
     def test_extension_load_does_not_reenable_gil(self):
-        # sys._is_gil_enabled() only exists on free-threading Python (3.13t+); on a regular GIL
-        # build the GIL is always on and there is nothing to assert.
-        if not hasattr(sys, "_is_gil_enabled"):
+        # only a free-threading build (3.13t+) can run without the GIL, on a regular build there is nothing to assert
+        # (sys._is_gil_enabled exists on regular 3.13+ builds too, but always returns True)
+        if not sysconfig.get_config_var("Py_GIL_DISABLED"):
             self.skipTest("free-threading Python required")
         # Check in a fresh subprocess: any other import in this process may have already
         # re-enabled the GIL globally, and `import torch2jax` alone does not load the C++
