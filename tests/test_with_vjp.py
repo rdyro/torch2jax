@@ -10,6 +10,9 @@ from torch2jax import torch2jax_with_vjp, tree_j2t  # noqa: E402
 
 ####################################################################################################
 
+CUDA_AVAILABLE = torch.cuda.is_available() and jax.default_backend() == "gpu"
+
+
 randn_keys = None
 
 
@@ -28,7 +31,7 @@ class VJPTests(parameterized.TestCase):
         use_torch_vjp=[True, False],
     )
     def test_torch2jax_with_vjp(self, device, dtype, use_torch_vjp):
-        if not torch.cuda.is_available() and device == "cuda":
+        if not CUDA_AVAILABLE and device == "cuda":
             self.skipTest("Skipping CUDA test when CUDA is not available")
         shape = (5, 7)
 
@@ -92,7 +95,7 @@ class VJPTests(parameterized.TestCase):
     @parameterized.product(device=["cuda", "cpu"], dtype=[jnp.float32, jnp.float64], use_torch_vjp=[True, False])
     def test_jacobian(self, device, dtype, use_torch_vjp):
         """Test that the jacobian is correct."""
-        if not torch.cuda.is_available() and device == "cuda":
+        if not CUDA_AVAILABLE and device == "cuda":
             self.skipTest("Skipping CUDA test when CUDA is not available")
         shape = (2, 3)
 
@@ -128,7 +131,7 @@ class VJPTests(parameterized.TestCase):
     @parameterized.product(device=["cuda", "cpu"], dtype=[jnp.float32, jnp.float64], use_torch_vjp=[True, False])
     def test_hessian(self, device, dtype, use_torch_vjp):
         """Test that the hessian is correct."""
-        if not torch.cuda.is_available() and device == "cuda":
+        if not CUDA_AVAILABLE and device == "cuda":
             self.skipTest("Skipping CUDA test when CUDA is not available")
 
         shape = (2, 3)

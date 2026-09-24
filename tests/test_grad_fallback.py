@@ -10,6 +10,9 @@ from torch2jax import torch2jax_with_vjp  # noqa: E402
 
 ####################################################################################################
 
+CUDA_AVAILABLE = torch.cuda.is_available() and jax.default_backend() == "gpu"
+
+
 randn_keys = None
 
 
@@ -24,7 +27,7 @@ def jax_randn(shape, device, dtype):
 class TestGradFallback(parameterized.TestCase):
     @parameterized.product(device=["cpu", "cuda"], dtype=[jnp.float32, jnp.float64])
     def test_torch2jax_with_vjp_vjp_fallback(self, device, dtype):
-        if device == "cuda" and not torch.cuda.is_available():
+        if device == "cuda" and not CUDA_AVAILABLE:
             self.skipTest("Skipping CUDA tests when CUDA is not available")
         shape = (5, 7)
 

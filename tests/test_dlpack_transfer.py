@@ -11,6 +11,9 @@ import numpy as np
 
 from torch2jax import j2t, t2j, tree_j2t, tree_t2j  # noqa: E402
 
+CUDA_AVAILABLE = torch.cuda.is_available() and jax.default_backend() == "gpu"
+
+
 DTYPE_MAP = {torch.float32: jnp.float32, torch.float64: jnp.float64}
 DEVICE_MAP = {"gpu": "cuda", "cpu": "cpu", "cuda": "cuda"}
 
@@ -28,12 +31,12 @@ def jax_randn(shape, device, dtype):
 class TestDlpackTransfers(parameterized.TestCase, absltest.TestCase):
     @parameterized.product(device=["cpu", "cuda"], dtype=[torch.float32, torch.float64], via=["host", "dlpack"])
     def test_dlpack_transfer(self, device, dtype, via):
-        if not torch.cuda.is_available() and device == "cuda":
+        if not CUDA_AVAILABLE and device == "cuda":
             self.skipTest("skipping CUDA test because CUDA is not available")
         old_jax_enable_x64 = jax.config.jax_enable_x64
         try:
             jax.config.update("jax_enable_x64", True)
-            if device == "cuda" and not torch.cuda.is_available():
+            if device == "cuda" and not CUDA_AVAILABLE:
                 self.skipTest("Skipping CUDA tests when no CUDA available")
             shape = (2, 3, 5, 1)
 
@@ -57,7 +60,7 @@ class TestDlpackTransfers(parameterized.TestCase, absltest.TestCase):
 
     @parameterized.product(device=["cpu", "cuda"])
     def test_tree_dlpack_transfer(self, device):
-        if not torch.cuda.is_available() and device == "cuda":
+        if not CUDA_AVAILABLE and device == "cuda":
             self.skipTest("skipping CUDA test because CUDA is not available")
 
         args = dict(

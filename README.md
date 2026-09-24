@@ -275,6 +275,29 @@ the GPU.
 
 # Changelog
 
+- unreleased
+  - **breaking**: sharding follows JAX's explicit sharding model: inputs sharded along
+    explicit mesh axes are never implicitly all-gathered, pass `out_specs=` to call the
+    torch function per-shard (inside `jax.shard_map`), `out_specs` also works with gradients
+    and is an error over Auto mesh axes (the `jax.make_mesh` default in older JAX);
+    `output_sharding_spec` is a deprecated alias, `custom_partitioning` (and the global
+    switch to the GSPMD partitioner) was removed
+  - gradients inside `jax.shard_map` work with `check_vma=True`, cotangents of replicated
+    inputs are `psum`-ed automatically
+  - **breaking**: torch outputs are validated against `output_shapes`, a shape or dtype
+    mismatch is an error (previously silently broadcast/cast), unsupported dtypes raise
+    instead of aborting; added complex, uint16/32/64 and float8 dtypes
+  - fixed int64 inputs (e.g., class labels) when JAX x64 is disabled
+  - output shapes are inferred on the meta device (no compute) with a fallback to real tensors
+  - the torch computation is enqueued on XLA's CUDA stream instead of synchronizing the device,
+    ordered with torch's own stream by CUDA events (prior torch work, e.g., weight updates, is
+    visible to the torch function, and later torch work sees the state it modified)
+  - the C++ extension is rebuilt when its sources change
+  - with `out_specs`, a global `output_shapes` is split per-shard, the torch function is not
+    run to infer per-shard output shapes
+  - the `torch.autograd.grad` VJP fallback is used whenever `torch.func.vjp` fails (e.g.,
+    `.numpy()` in the function), the original error is raised if the fallback fails too
+
 - version 0.8.0
   - **breaking**: `torch2jax` now defines gradients by default (`depth=2`), unifying
     the old `torch2jax` (forward-only) and `torch2jax_with_vjp` (with gradients)

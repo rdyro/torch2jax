@@ -9,6 +9,9 @@ from jax import ShapeDtypeStruct
 
 from torch2jax import torch2jax, torch2jax_with_vjp  # noqa: E402
 
+CUDA_AVAILABLE = torch.cuda.is_available() and jax.default_backend() == "gpu"
+
+
 randn_keys = None
 
 
@@ -44,7 +47,7 @@ class TestTransformUnderJIT(parameterized.TestCase):
         shape=[(2, 3), (5, 10), (7,)],
     )
     def test_with_jit(self, device, dtype, shape):
-        if device == "cuda" and not torch.cuda.is_available():
+        if device == "cuda" and not CUDA_AVAILABLE:
             self.skipTest("Skipping CUDA tests when CUDA is not available")
         a = jax_randn(shape, dtype=dtype, device=device)
         b = jax_randn(shape, dtype=dtype, device=device)
@@ -61,7 +64,7 @@ class TestTransformUnderJIT(parameterized.TestCase):
         shape=[(2, 3), (5, 10), (7,)],
     )
     def test_without_jit(self, device, dtype, shape):
-        if device == "cuda" and not torch.cuda.is_available():
+        if device == "cuda" and not CUDA_AVAILABLE:
             self.skipTest("Skipping CUDA tests when CUDA is not available")
         a = jax_randn(shape, dtype=dtype, device=device)
         b = jax_randn(shape, dtype=dtype, device=device)
@@ -78,7 +81,7 @@ class TestTransformUnderJIT(parameterized.TestCase):
         shape=[(2, 3), (5, 10), (7,)],
     )
     def test_grads_without_jit(self, device, dtype, shape):
-        if device == "cuda" and not torch.cuda.is_available():
+        if device == "cuda" and not CUDA_AVAILABLE:
             self.skipTest("Skipping CUDA tests when CUDA is not available")
         a = jax_randn(shape, dtype=dtype, device=device)
         b = jax_randn(shape, dtype=dtype, device=device)
@@ -95,7 +98,7 @@ class TestTransformUnderJIT(parameterized.TestCase):
         shape=[(2, 3), (5, 10), (7,)],
     )
     def test_grads_with_jit(self, device, dtype, shape):
-        if device == "cuda" and not torch.cuda.is_available():
+        if device == "cuda" and not CUDA_AVAILABLE:
             self.skipTest("Skipping CUDA tests when CUDA is not available")
         a = jax_randn(shape, dtype=dtype, device=device)
         b = jax_randn(shape, dtype=dtype, device=device)

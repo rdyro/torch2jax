@@ -1,7 +1,6 @@
 import sys
 import hashlib
 import platform
-import os
 from shutil import rmtree
 from pathlib import Path
 from types import ModuleType
@@ -11,10 +10,7 @@ import torch
 from torch.utils import cpp_extension
 import jax
 
-try:
-    from jax import ffi
-except ImportError:
-    from jax.extend import ffi
+from jax import ffi
 
 try:
     from importlib.metadata import version
@@ -30,7 +26,7 @@ def _generate_extension_version() -> str:
     py_version = "".join(map(str, sys.version_info[:2]))
     py_abi_tag = sys.abiflags
     py_name_version = f"{py_impl}-{py_version}{py_abi_tag}"
-    system_info = f"{platform.system().lower()}-{platform.machine()}"
+    system_info = f"{platform.system().lower()}-{platform.machine()}-{'cuda' if torch.cuda.is_available() else 'cpu'}"
     # the .so is compiled against torch's libtorch_python + bundled pybind11 ABI, so the torch version
     # MUST be part of the cache key: upgrading torch (e.g. pybind11 2.x -> 3.0) otherwise silently reuses
     # an ABI-mismatched .so and breaks the FFI call (e.g. "no interpreter is set").
@@ -50,13 +46,8 @@ def compile_extension(force_recompile: bool = False) -> ModuleType:
     mod_version = _generate_extension_version()
     build_dir = Path(f"~/.cache/torch2jax/{mod_version}").expanduser().absolute()
     if force_recompile and build_dir.exists():
-        if build_dir.is_dir():
-            print(f"Removing the existing build directory at {build_dir}")
-            rmtree(build_dir)
-            if build_dir.exists():
-                os.removedirs(build_dir)
-        else:
-            os.remove(build_dir)
+        print(f"Removing the existing build directory at {build_dir}")
+        rmtree(build_dir) if build_dir.is_dir() else build_dir.unlink()
     build_dir.mkdir(exist_ok=True, parents=True)
 
     if str(build_dir) not in sys.path:
@@ -86,7 +77,7 @@ def compile_extension(force_recompile: bool = False) -> ModuleType:
             verbose=True,
             extra_cflags=extra_cflags,
             extra_cuda_cflags=extra_cuda_cflags,
-            extra_ldflags=["-lcuda" if torch.cuda.is_available() else ""],
+            extra_ldflags=["-lcuda"] if torch.cuda.is_available() else [],
         )
     for _name, _value in mod.cpu_registrations().items():
         ffi.register_ffi_target(_name, _value, platform="cpu")

@@ -1,6 +1,5 @@
 import functools
 from typing import Callable, Any
-from inspect import signature
 
 import torch
 from torch import Tensor
@@ -8,11 +7,7 @@ import jax
 from jax import ShapeDtypeStruct
 import numpy as np
 
-# jax version-friendly way of importing the ffi module in jax
-try:
-    from jax import ffi
-except ImportError:
-    from jax.extend import ffi
+from jax import ffi
 
 from jax.sharding import PartitionSpec
 
@@ -41,22 +36,8 @@ _WARN_OUTPUT_SHARDING_SPEC_DEPRECATED = "`output_sharding_spec` is deprecated, u
 _MISMATCH_ARGS_MSG = "Provided args =\n{} do not match the torch2jax function's expected input structure =\n{}"
 
 
-def _gen_ffi_call(outshapes, vmap_method: str):
-    if signature(ffi.ffi_call).return_annotation.startswith("Callable"):
-        fn_ = ffi.ffi_call("torch_call", outshapes, vmap_method=vmap_method)
-    else:
-        if vmap_method != "sequential":
-            raise ValueError(
-                f"You specificed {vmap_method=}, but your jax version {jax.__version__} does not support new style of"
-                " `vmap_method=` specification. Please upgrade your JAX version to use this features"
-            )
-        fn_ = lambda *args_flat, fn_id: ffi.ffi_call("torch_call", outshapes, *args_flat, vectorized=False, fn_id=fn_id)
-    return fn_
-
-
 def _torch2jax_flat(
     fn: Callable,
-    input_shapes: list[jax.Array | Tensor | ShapeDtypeStruct] = None,
     output_shapes: list[jax.Array | Tensor | ShapeDtypeStruct] = None,
     vmap_method: str = "sequential",
 ) -> Callable:
@@ -65,12 +46,10 @@ def _torch2jax_flat(
 
     Args:
         fn (Callable): PyTorch function.
-        example_args: Example arguments. Defaults to None.
         output_shapes: Output shapes (or shapes with dtype). Defaults to None.
     Returns:
         Callable: Wrapped jit-compatible jax function.
     """
-    # assert example_args is not None or output_shapes is not None or output_shapes_fn is not None
     _ = compile_and_import_module()
     id = find_unique_id()
 
@@ -93,7 +72,7 @@ def _torch2jax_flat(
 
     @jax.jit
     def wrapped_flat_fn(*args_flat):
-        return _gen_ffi_call(outshapes, vmap_method=vmap_method)(*args_flat, fn_id=f"{id:d}")
+        return ffi.ffi_call("torch_call", outshapes, vmap_method=vmap_method)(*args_flat, fn_id=f"{id:d}")
 
     return wrapped_flat_fn
 
@@ -121,7 +100,7 @@ def _torch2jax(
         vmap_method: batching method, see
             [https://docs.jax.dev/en/latest/ffi.html#batching-with-vmap](https://docs.jax.dev/en/latest/ffi.html#batching-with-vmap)
 
-            NOTE: only vmap_method="sequntial" is supported non-experimentally
+            NOTE: only vmap_method="sequential" is supported non-experimentally
 
             NOTE: try "expand_dims", "broadcast_all" if you want to experiment with pytorch-side batching
         output_sharding_spec: Deprecated alias for `out_specs`.
@@ -191,7 +170,6 @@ def _torch2jax(
     # define the wrapped function using flat interface
     wrapped_fn_flat = _torch2jax_flat(
         flat_fn,
-        input_shapes=None,
         output_shapes=output_shapes,
         vmap_method=vmap_method,
     )

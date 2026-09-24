@@ -7,6 +7,9 @@ import torch
 import jax
 from jax import numpy as jnp
 
+CUDA_AVAILABLE = torch.cuda.is_available() and jax.default_backend() == "gpu"
+
+
 paths = [Path(__file__).absolute().parents[1], Path(__file__).absolute().parent]
 for path in paths:
     if str(path) not in sys.path:
@@ -21,7 +24,7 @@ from torch2jax.api import _SHAPE_CHANGE_WARN_CONCRETE, _SHAPE_CHANGE_WARN_EXPLIC
 class TestCaching(parameterized.TestCase):
     @parameterized.product(device=["cpu", "cuda"], dtype=[jnp.float32, jnp.float64])
     def test_torch2jax_caching(self, device, dtype):
-        if not torch.cuda.is_available() and device == "cuda":
+        if not CUDA_AVAILABLE and device == "cuda":
             self.skipTest("Skipping CUDA test when CUDA is not available.")
 
         def torch_fn(x, y):
@@ -47,7 +50,7 @@ class TestCaching(parameterized.TestCase):
 
     @parameterized.product(device=["cpu", "cuda"], dtype=[jnp.float32, jnp.float64])
     def test_torch2jax_with_vjp_caching(self, device, dtype):
-        if not torch.cuda.is_available() and device == "cuda":
+        if not CUDA_AVAILABLE and device == "cuda":
             self.skipTest("Skipping CUDA test when CUDA is not available.")
 
         def torch_fn(x, y):

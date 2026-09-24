@@ -17,6 +17,9 @@ from torch import Tensor
 from torch2jax import torch2jax_without_vjp
 from torch2jax import Size, tree_t2j, j2t
 
+CUDA_AVAILABLE = torch.cuda.is_available() and jax.default_backend() == "gpu"
+
+
 WRITE_PROFILE = False
 
 
@@ -59,7 +62,7 @@ class MultiDeviceTest(parameterized.TestCase):
         seed=[0, 1, 2], device=["cpu", "cuda"], size0=[256], size1=[8, 16], simulate_compute=[True, False]
     )
     def test_shard_map(self, seed: int, size0, size1, device, simulate_compute):
-        if device == "cuda" and (not torch.cuda.is_available() or jax.default_backend() != "gpu"):
+        if device == "cuda" and not CUDA_AVAILABLE:
             self.skipTest("CUDA not available, skipping CUDA test")
         if simulate_compute and device == "cuda":
             size0, size1 = 1024 * len(jax.devices(device)), 1024
@@ -96,7 +99,7 @@ class MultiDeviceTest(parameterized.TestCase):
     def test_pmap(self, seed, device, size0, size1, simulate_compute):
         self.skipTest("`pmap` doesn't work (just hangs), TODO(rdyro): more debugging needed")
 
-        if device == "cuda" and (not torch.cuda.is_available() or jax.default_backend() != "gpu"):
+        if device == "cuda" and not CUDA_AVAILABLE:
             self.skipTest("CUDA not available, skipping CUDA test")
         mesh, sharding, shape, (a, b) = _generate_data(seed, devices=jax.devices(device))
 
@@ -127,7 +130,7 @@ class MultiDeviceTest(parameterized.TestCase):
         seed=[0, 1, 2], device=["cpu", "cuda"], size0=[1024, 16], size1=[1024, 16], simulate_compute=[True, False]
     )
     def test_auto_partitioning(self, seed, size0, size1, device, simulate_compute):
-        if device == "cuda" and (not torch.cuda.is_available() or jax.default_backend() != "gpu"):
+        if device == "cuda" and not CUDA_AVAILABLE:
             self.skipTest("CUDA not available, skipping CUDA test")
         if simulate_compute and device == "cuda":
             size0, size1 = 1024 * len(jax.devices(device)), 1024

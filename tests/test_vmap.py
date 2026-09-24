@@ -16,6 +16,9 @@ from torch2jax import torch2jax, torch2jax_with_vjp  # noqa: E402
 
 ####################################################################################################
 
+CUDA_AVAILABLE = torch.cuda.is_available() and jax.default_backend() == "gpu"
+
+
 randn_keys = None
 
 
@@ -30,7 +33,7 @@ def jax_randn(shape, device, dtype):
 class TestVmap(parameterized.TestCase):
     @parameterized.product(device=["cuda", "cpu"], dtype=[jnp.float32, jnp.float64])
     def test_simple_vmap(self, device, dtype):
-        if device == "cuda" and not torch.cuda.is_available():
+        if device == "cuda" and not CUDA_AVAILABLE:
             self.skipTest("Skipping CUDA tests when CUDA is not available")
 
         def torch_fn(A, x):
@@ -54,7 +57,7 @@ class TestVmap(parameterized.TestCase):
 
     @parameterized.product(device=["cuda", "cpu"], dtype=[jnp.float32, jnp.float64])
     def test_simple_vmap_v2(self, device, dtype):
-        if device == "cuda" and not torch.cuda.is_available():
+        if device == "cuda" and not CUDA_AVAILABLE:
             self.skipTest("Skipping CUDA tests when CUDA is not available")
         if not signature(ffi.ffi_call).return_annotation.startswith("Callable"):
             self.skipTest("ffi.ffi_call is too old")

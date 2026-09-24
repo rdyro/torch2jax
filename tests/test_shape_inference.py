@@ -8,6 +8,9 @@ from jax import numpy as jnp
 from torch2jax import torch2jax, torch2jax_auto, tree_t2j, j2t
 
 
+CUDA_AVAILABLE = torch.cuda.is_available() and jax.default_backend() == "gpu"
+
+
 class TestShapeInference(parameterized.TestCase):
     def test_inference_runs_on_meta_without_grad(self):
         seen = []
@@ -22,7 +25,7 @@ class TestShapeInference(parameterized.TestCase):
 
     @parameterized.product(depth=[0, 2])
     def test_shape_change_with_device_resident_weights(self, depth):
-        if not torch.cuda.is_available() or jax.default_backend() != "gpu":
+        if not CUDA_AVAILABLE:
             self.skipTest("CUDA not available")
         lin = torch.nn.Linear(3, 2).cuda().requires_grad_(False)
         torch_fn = lambda x: lin(x)

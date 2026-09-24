@@ -11,6 +11,9 @@ from torch2jax import torch2jax_auto
 
 ####################################################################################################
 
+CUDA_AVAILABLE = torch.cuda.is_available() and jax.default_backend() == "gpu"
+
+
 randn_keys = None
 
 
@@ -25,7 +28,7 @@ def jax_randn(shape, device, dtype):
 class AutoTesting(parameterized.TestCase):
     @parameterized.product(shape=[(10, 2), (10,)], device=["cpu", "cuda"], dtype=[jnp.float32, jnp.float64])
     def test_auto_basic(self, shape, device, dtype):
-        if not torch.cuda.is_available() and device == "cuda":
+        if not CUDA_AVAILABLE and device == "cuda":
             self.skipTest("CUDA not available, skipping CUDA test")
         def torch_fn(x, y):
             return x + y
@@ -52,7 +55,7 @@ class AutoTesting(parameterized.TestCase):
 
     @parameterized.product(shape=[(10, 2), (10,)], device=["cpu", "cuda"], dtype=[jnp.float32, jnp.float64])
     def test_auto_vjp(self, shape, device, dtype):
-        if not torch.cuda.is_available() and device == "cuda":
+        if not CUDA_AVAILABLE and device == "cuda":
             self.skipTest("CUDA not available, skipping CUDA test")
         def torch_fn(x, y):
             return torch.sum(x * y)
@@ -73,7 +76,7 @@ class AutoTesting(parameterized.TestCase):
 
     @parameterized.product(shape=[(10, 2), (10,)], device=["cpu", "cuda"], dtype=[jnp.float32, jnp.float64])
     def test_auto_kwargs(self, shape, device, dtype):
-        if not torch.cuda.is_available() and device == "cuda":
+        if not CUDA_AVAILABLE and device == "cuda":
             self.skipTest("CUDA not available, skipping CUDA test")
         def torch_fn(x, alpha):
             return x * alpha
@@ -92,7 +95,7 @@ class AutoTesting(parameterized.TestCase):
 
     @parameterized.product(shape=[(10, 2), (10,)], device=["cpu", "cuda"], dtype=[jnp.float32, jnp.float64])
     def test_auto_jit(self, shape, device, dtype):
-        if not torch.cuda.is_available() and device == "cuda":
+        if not CUDA_AVAILABLE and device == "cuda":
             self.skipTest("CUDA not available, skipping CUDA test")
         if len(shape) != 2:
             self.skipTest("Requires 2D shape for matrix multiplication")

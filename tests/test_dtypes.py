@@ -5,14 +5,21 @@ import textwrap
 from pathlib import Path
 
 from absl.testing import absltest, parameterized
+import numpy as np
 import torch
+import jax
+from jax import numpy as jnp
+
+from torch2jax import torch2jax
+
+CUDA_AVAILABLE = torch.cuda.is_available() and jax.default_backend() == "gpu"
 
 
 class TestX64Disabled(parameterized.TestCase):
     @parameterized.product(device=["cpu", "cuda"])
     def test_int64_example_args_without_x64(self, device):
         # x64 must be off from process start, so run in a fresh interpreter
-        if device == "cuda" and not torch.cuda.is_available():
+        if device == "cuda" and not CUDA_AVAILABLE:
             self.skipTest("CUDA not available")
         script = textwrap.dedent(f"""
             import warnings
@@ -44,15 +51,11 @@ if __name__ == "__main__":
 
 class TestOutputValidation(parameterized.TestCase):
     def _jax_fn(self, torch_fn, x, out):
-        from torch2jax import torch2jax
-
         return torch2jax(torch_fn, x, output_shapes=out, depth=0)
 
     @parameterized.product(device=["cpu", "cuda"])
     def test_wrong_output_shape_errors(self, device):
-        import jax, jax.numpy as jnp
-
-        if device == "cuda" and not torch.cuda.is_available():
+        if device == "cuda" and not CUDA_AVAILABLE:
             self.skipTest("CUDA not available")
         x = jax.device_put(jnp.arange(4.0), jax.devices(device)[0])
         fn = self._jax_fn(lambda a: a[:1] * 10, x, jax.ShapeDtypeStruct((4,), jnp.float32))
@@ -61,9 +64,7 @@ class TestOutputValidation(parameterized.TestCase):
 
     @parameterized.product(device=["cpu", "cuda"])
     def test_wrong_output_dtype_and_count_errors(self, device):
-        import jax, jax.numpy as jnp
-
-        if device == "cuda" and not torch.cuda.is_available():
+        if device == "cuda" and not CUDA_AVAILABLE:
             self.skipTest("CUDA not available")
         x = jax.device_put(jnp.arange(4.0, dtype=jnp.float32), jax.devices(device)[0])
         fn = self._jax_fn(lambda a: a.to(torch.int8), x, x)
@@ -78,10 +79,7 @@ class TestOutputValidation(parameterized.TestCase):
         dtype=["complex64", "uint16", "uint32", "float8_e4m3fn", "float8_e5m2", "bfloat16", "bool"],
     )
     def test_dtype_roundtrip(self, device, dtype):
-        import jax, jax.numpy as jnp
-        import numpy as np
-
-        if device == "cuda" and not torch.cuda.is_available():
+        if device == "cuda" and not CUDA_AVAILABLE:
             self.skipTest("CUDA not available")
         x = jax.device_put(jnp.arange(8).astype(dtype), jax.devices(device)[0])
         y = self._jax_fn(lambda a: a.clone(), x, x)(x)

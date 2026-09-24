@@ -12,6 +12,9 @@ from torch2jax.dlpack_passing import tree_j2t  # noqa: E402
 
 ####################################################################################################
 
+CUDA_AVAILABLE = torch.cuda.is_available() and jax.default_backend() == "gpu"
+
+
 randn_keys = None
 
 
@@ -36,7 +39,7 @@ class InterfaceTesting(parameterized.TestCase):
         ],
     )
     def test_single_output_fn(self, shape, device, dtype, method):
-        if not torch.cuda.is_available() and device == "cuda":
+        if not CUDA_AVAILABLE and device == "cuda":
             self.skipTest("skipping CUDA test because CUDA is not available")
 
         def torch_fn(x, y=None):
@@ -96,7 +99,7 @@ class InterfaceTesting(parameterized.TestCase):
         ],
     )
     def test_multi_output_fn(self, shape, device, dtype, method):
-        if not torch.cuda.is_available() and device == "cuda":
+        if not CUDA_AVAILABLE and device == "cuda":
             self.skipTest("skipping CUDA test because CUDA is not available")
 
         def torch_fn(x, y=None):

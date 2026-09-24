@@ -11,6 +11,9 @@ from torch2jax import torch2jax  # noqa: E402
 
 ####################################################################################################
 
+CUDA_AVAILABLE = torch.cuda.is_available() and jax.default_backend() == "gpu"
+
+
 randn_keys = None
 
 
@@ -25,7 +28,7 @@ def jax_randn(shape, device, dtype):
 class TestFnWrapping(parameterized.TestCase):
     @parameterized.product(device=["cpu", "cuda"], dtype=[jnp.float32, jnp.float64])
     def test_single_output_fn(self, device, dtype):
-        if not torch.cuda.is_available() and device == "cuda":
+        if not CUDA_AVAILABLE and device == "cuda":
             self.skipTest("Skipping CUDA test when CUDA is not available.")
         shape = (10, 2)
 
@@ -65,7 +68,7 @@ class TestFnWrapping(parameterized.TestCase):
 
     @parameterized.product(device=["cpu", "cuda"], dtype=[jnp.float32, jnp.float64])
     def test_multi_output_fn(self, device, dtype):
-        if not torch.cuda.is_available() and device == "cuda":
+        if not CUDA_AVAILABLE and device == "cuda":
             self.skipTest("Skipping CUDA test when CUDA is not available.")
 
         shape = (10, 2)

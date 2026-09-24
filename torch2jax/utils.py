@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import random
 from typing import Any
-from types import ModuleType
 import warnings
 from functools import lru_cache
 
@@ -18,7 +17,7 @@ from jax import numpy as jnp, Array
 def find_unique_id() -> int:
     while True:
         id = random.randint(0, 2**63)
-        if not hasattr(torch, f"_torch2jax_fn_{id}") and not hasattr(torch, f"_torch2jax_args_{id}"):
+        if not hasattr(torch, f"_torch2jax_fn_{id}"):
             return id
 
 
@@ -105,32 +104,6 @@ def infer_outputs(fn, args: Any, kw: dict | None = None) -> Any:
             device = default_torch_device()
             args, kw = jax.tree.map(lambda x: torch.zeros_like(x, device=device) if x.is_meta else x, (args, kw))
             return fn(*args, **kw)
-
-
-def dtype_j2m(cpp_module: ModuleType, dtype: jnp.dtype) -> int:
-    """Translate jax dtype to integer denoting dtype in the torch2jax cpp extension module."""
-    if dtype == jnp.bool:
-        return cpp_module.DATA_TYPE_BOOL
-    elif dtype == jnp.uint8:
-        return cpp_module.DATA_TYPE_UINT8
-    elif dtype == jnp.int8:
-        return cpp_module.DATA_TYPE_INT8
-    elif dtype == jnp.int16:
-        return cpp_module.DATA_TYPE_INT16
-    elif dtype == jnp.int32:
-        return cpp_module.DATA_TYPE_INT32
-    elif dtype == jnp.int64:
-        return cpp_module.DATA_TYPE_INT64
-    elif dtype == jnp.float16:
-        return cpp_module.DATA_TYPE_FLOAT16
-    elif dtype == jnp.bfloat16:
-        return cpp_module.DATA_TYPE_BFLOAT16
-    elif dtype == jnp.float32:
-        return cpp_module.DATA_TYPE_FLOAT32
-    elif dtype == jnp.float64:
-        return cpp_module.DATA_TYPE_FLOAT64
-    else:
-        raise ValueError("Unsupported dtype: {}".format(dtype))
 
 
 ####################################################################################################

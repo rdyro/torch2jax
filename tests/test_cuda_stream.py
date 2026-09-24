@@ -6,11 +6,14 @@ from jax import numpy as jnp
 from torch2jax import torch2jax
 
 
+CUDA_AVAILABLE = torch.cuda.is_available() and jax.default_backend() == "gpu"
+
+
 class TestCudaStreamOrdering(parameterized.TestCase):
     @parameterized.product(depth=[0, 2])
     def test_interleaved_jax_torch_chain(self, depth):
         # torch runs on XLA's stream without device syncs, so producer -> torch -> consumer ordering must still hold
-        if not torch.cuda.is_available() or jax.default_backend() != "gpu":
+        if not CUDA_AVAILABLE:
             self.skipTest("CUDA not available")
         x = jax.device_put(jax.random.normal(jax.random.key(0), (2048, 2048)), jax.devices("cuda")[0])
         torch_step = torch2jax(lambda a: torch.tanh(a @ a * 1e-3) + a, x, depth=depth)
@@ -33,7 +36,7 @@ class TestCudaStreamOrdering(parameterized.TestCase):
                 self.assertLess(float(jnp.linalg.norm(g - g_ref) / jnp.linalg.norm(g_ref)), 1e-4)
 
     def _slow_fn(self):  # returns a fn whose value `v` is available only after a chain of large matmuls
-        if not torch.cuda.is_available() or jax.default_backend() != "gpu":
+        if not CUDA_AVAILABLE:
             self.skipTest("CUDA not available")
         A = torch.randn(4096, 4096, device="cuda")
 

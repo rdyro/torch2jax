@@ -18,7 +18,6 @@
 #include <cstddef>
 #include <cstdint>
 #include <optional>
-#include <set>
 #include <sstream>
 #include <stdexcept>
 #include <string>
@@ -31,33 +30,9 @@ namespace ffi = xla::ffi;
 
 ////////////////////////////////////////////////////////////////////////////////
 
-#define DEVICE_TYPE_CPU 0
-#define DEVICE_TYPE_CUDA 1
-
-#define DATA_TYPE_BOOL 0
-#define DATA_TYPE_UINT8 1
-#define DATA_TYPE_INT8 2
-#define DATA_TYPE_INT16 3
-#define DATA_TYPE_INT32 4
-#define DATA_TYPE_INT64 5
-#define DATA_TYPE_FLOAT16 6
-#define DATA_TYPE_FLOAT32 7
-#define DATA_TYPE_FLOAT64 8
-#define DATA_TYPE_BFLOAT16 9
-
-#define MASK32BIT 0xFFFFFFFF
-
-////////////////////////////////////////////////////////////////////////////////
-
 struct TorchCallDevice {
   torch::DeviceType type;
   int64_t index;
-};
-
-struct DynamicShapeDtype {
-  int64_t ndim;
-  vector<int64_t> shape;
-  int64_t dtype;
 };
 
 ////////////////////////////////////////////////////////////////////////////////
