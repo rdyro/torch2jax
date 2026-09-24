@@ -19,7 +19,7 @@ from jax.experimental.custom_partitioning import custom_partitioning
 from jax.sharding import NamedSharding, PartitionSpec, Mesh
 
 from .compile import compile_and_import_module
-from .utils import find_unique_id, dtype_t2j, normalize_shapes, warn_once, warn_always
+from .utils import find_unique_id, dtype_t2j, dtype_j2t, normalize_shapes, warn_once, warn_always
 from .utils import canonical_dtype, shape_key, torch_dtype_like
 
 zip_ = zip
@@ -76,18 +76,25 @@ def _torch2jax_flat(
     _ = compile_and_import_module()
     id = find_unique_id()
 
-    def torch_call_fn_(args: list[torch.Tensor]):
-        nonlocal output_shapes
-        out = fn(*args)
-        return (out,) if isinstance(out, Tensor) else tuple(out)
-
-    setattr(torch, f"_torch2jax_fn_{id:d}", torch_call_fn_)
-
     inshapes = None
     if input_shapes is not None:
         inshapes = jax.tree.map(lambda x: ShapeDtypeStruct(x.shape, dtype_t2j(x.dtype)), input_shapes)
     assert output_shapes is not None, "`output_shapes` cannot be None"
     outshapes = jax.tree.map(lambda x: ShapeDtypeStruct(x.shape, canonical_dtype(x.dtype)), output_shapes)
+    out_dtypes = [dtype_j2t(x.dtype) for x in jax.tree.leaves(outshapes)]
+
+    def torch_call_fn_(args: list[torch.Tensor]):
+        out = fn(*args)
+        out = (out,) if isinstance(out, Tensor) else tuple(out)
+        if len(out) != len(out_dtypes):
+            return out  # reported as an error by the FFI call
+        # cast only dtypes JAX treats as equivalent (e.g., int64 -> int32 when x64 is disabled), the rest is validated
+        return tuple(
+            o.to(dt) if isinstance(o, Tensor) and o.dtype != dt and canonical_dtype(o.dtype) == dt_j else o
+            for o, dt, dt_j in zip_(out, out_dtypes, map(dtype_t2j, out_dtypes))
+        )
+
+    setattr(torch, f"_torch2jax_fn_{id:d}", torch_call_fn_)
 
     @jax.jit
     def wrapped_flat_fn(*args_flat):

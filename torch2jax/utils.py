@@ -22,57 +22,46 @@ def find_unique_id() -> int:
             return id
 
 
+_T2J = {
+    torch.bool: jnp.bool_,
+    torch.uint8: jnp.uint8,
+    torch.uint16: jnp.uint16,
+    torch.uint32: jnp.uint32,
+    torch.uint64: jnp.uint64,
+    torch.int8: jnp.int8,
+    torch.int16: jnp.int16,
+    torch.int32: jnp.int32,
+    torch.int64: jnp.int64,
+    torch.float16: jnp.float16,
+    torch.bfloat16: jnp.bfloat16,
+    torch.float32: jnp.float32,
+    torch.float64: jnp.float64,
+    torch.complex64: jnp.complex64,
+    torch.complex128: jnp.complex128,
+    torch.float8_e4m3fn: jnp.float8_e4m3fn,
+    torch.float8_e5m2: jnp.float8_e5m2,
+    torch.float8_e4m3fnuz: jnp.float8_e4m3fnuz,
+    torch.float8_e5m2fnuz: jnp.float8_e5m2fnuz,
+}
+_J2T = {jnp.dtype(v): k for k, v in _T2J.items()}
+
+
 def dtype_t2j(dtype: torch.dtype) -> jnp.dtype:
     """Translate torch dtype to jax dtype."""
     try:
-        return jnp.dtype(dtype)
-    except TypeError:
-        pass
-    return {
-        torch.float32: jnp.float32,
-        torch.float: jnp.float32,
-        torch.float64: jnp.float64,
-        torch.bfloat16: jnp.bfloat16,
-        torch.float16: jnp.float16,
-        torch.uint8: jnp.uint8,
-        torch.int8: jnp.int8,
-        torch.int16: jnp.int16,
-        torch.short: jnp.int16,
-        torch.int32: jnp.int32,
-        torch.int: jnp.int32,
-        torch.int64: jnp.int64,
-        torch.long: jnp.int64,
-        torch.bool: jnp.bool,
-    }[dtype]
+        return jnp.dtype(_T2J[dtype] if isinstance(dtype, torch.dtype) else dtype)
+    except (KeyError, TypeError):
+        raise ValueError(f"Unsupported dtype: {dtype}")
 
 
 def dtype_j2t(dtype: jnp.dtype) -> torch.dtype:
     """Translate jax dtype to torch dtype."""
     if isinstance(dtype, torch.dtype):
         return dtype
-
-    if dtype == jnp.bool:
-        return torch.bool
-    elif dtype == jnp.uint8:
-        return torch.uint8
-    elif dtype == jnp.int8:
-        return torch.int8
-    elif dtype == jnp.int16:
-        return torch.int16
-    elif dtype == jnp.int32:
-        return torch.int32
-    elif dtype == jnp.int64:
-        return torch.int64
-    elif dtype == jnp.float16:
-        return torch.float16
-    elif dtype == jnp.bfloat16:
-        return torch.bfloat16
-    elif dtype == jnp.float32:
-        return torch.float32
-    elif dtype == jnp.float64:
-        return torch.float64
-    else:
-        raise ValueError("Unsupported dtype: {}".format(dtype))
+    try:
+        return _J2T[jnp.dtype(dtype)]
+    except (KeyError, TypeError):
+        raise ValueError(f"Unsupported dtype: {dtype}")
 
 
 def canonical_dtype(dtype) -> jnp.dtype:

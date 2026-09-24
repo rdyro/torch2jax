@@ -1,4 +1,5 @@
 import sys
+import hashlib
 import platform
 import os
 from shutil import rmtree
@@ -33,7 +34,12 @@ def _generate_extension_version() -> str:
     # the .so is compiled against torch's libtorch_python + bundled pybind11 ABI, so the torch version
     # MUST be part of the cache key: upgrading torch (e.g. pybind11 2.x -> 3.0) otherwise silently reuses
     # an ABI-mismatched .so and breaks the FFI call (e.g. "no interpreter is set").
-    return f"{py_name_version}-{system_info}--jax-{jax.__version__}--torch-{torch.__version__}--torch2jax-{__version__}"
+    # hash the C++ sources too, so that editing them (e.g., in a dev install) triggers a rebuild
+    src_hash = hashlib.sha256(b"".join(f.read_bytes() for f in sorted((Path(__file__).parent / "cpp").glob("*.*"))))
+    return (
+        f"{py_name_version}-{system_info}--jax-{jax.__version__}--torch-{torch.__version__}--torch2jax-{__version__}"
+        f"-{src_hash.hexdigest()[:8]}"
+    )
 
 
 def compile_extension(force_recompile: bool = False) -> ModuleType:

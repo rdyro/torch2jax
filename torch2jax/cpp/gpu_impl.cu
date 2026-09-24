@@ -6,9 +6,7 @@ ffi::Error gpu_apply_torch_call_impl(cudaStream_t stream,
   The GPU version of this routine just deserializes the descriptor and calls the
   main `apply_torch_call` routine.
   --------------------------------------------------------------------------- */
-  apply_torch_call(args, rets, string(attrs.get<string_view>("fn_id").value()),
-                  torch::kCUDA);
-  return ffi::Error::Success();
+  return apply_torch_call(args, rets, string(attrs.get<string_view>("fn_id").value()), torch::kCUDA);
 }
 
 XLA_FFI_DEFINE_HANDLER_SYMBOL(
@@ -26,12 +24,15 @@ py::dict GPURegistrations() {
   return dict;
 }
 
-TorchCallDevice actual_device(torch::DeviceType device_type, void* buffer) {
-  if (device_type == torch::kCPU) return {torch::kCPU, 0};
+ffi::ErrorOr<TorchCallDevice> actual_device(torch::DeviceType device_type, void* buffer) {
+  if (device_type == torch::kCPU) return TorchCallDevice{torch::kCPU, 0};
   CUdevice device_ordinal;
-  CUresult err = cuPointerGetAttribute((void*)&device_ordinal, 
-                                       CU_POINTER_ATTRIBUTE_DEVICE_ORDINAL, 
-                                       (CUdeviceptr)buffer);
-  assert(err == CUDA_SUCCESS);
-  return {torch::kCUDA, device_ordinal};
+  CUresult err = cuPointerGetAttribute(&device_ordinal, CU_POINTER_ATTRIBUTE_DEVICE_ORDINAL, (CUdeviceptr)buffer);
+  if (err != CUDA_SUCCESS) {
+    const char* msg = nullptr;
+    cuGetErrorString(err, &msg);
+    return ffi::Unexpected(ffi::Error::Internal(string("torch2jax: cannot query the CUDA device of an XLA buffer: ") +
+                                                (msg ? msg : to_string(static_cast<int>(err)))));
+  }
+  return TorchCallDevice{torch::kCUDA, device_ordinal};
 }

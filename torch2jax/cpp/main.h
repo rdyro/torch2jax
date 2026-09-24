@@ -11,6 +11,9 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <optional>
+#include <set>
+#include <sstream>
 #include <stdexcept>
 #include <string>
 #include <type_traits>
@@ -65,27 +68,15 @@ py::capsule EncapsulateFfiCall(T *fn) {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-torch::TensorOptions tensor_dtype(torch::TensorOptions opts,
-                                  ffi::DataType dtype);
-torch::TensorOptions tensor_device(torch::TensorOptions opts,
-                                   const TorchCallDevice device);
+std::optional<torch::ScalarType> torch_dtype(ffi::DataType dtype);
 
-torch::TensorOptions tensor_options(ffi::DataType dtype,
-                                    const TorchCallDevice device);
-
-TorchCallDevice actual_device(torch::DeviceType device_type, void* buffer);
+ffi::ErrorOr<TorchCallDevice> actual_device(torch::DeviceType device_type, void* buffer);
 
 ////////////////////////////////////////////////////////////////////////////////
 
 /// @brief The main torch call routine, wraps JAX arrays as Torch tensors and
 /// calls the torch fn
-/// @tparam T
-/// @param buffers Array of pointers to input and then output buffers
-/// @param d The Torch call descriptor, contains input & output shapes and
-/// device and call id
-// template <typename T>
-void apply_torch_call(ffi::RemainingArgs buffers, ffi::RemainingRets, 
-    const string& fn_id, torch::DeviceType device_type);
-
+ffi::Error apply_torch_call(ffi::RemainingArgs args, ffi::RemainingRets rets, const string& fn_id,
+                            torch::DeviceType device_type);
 
 #endif

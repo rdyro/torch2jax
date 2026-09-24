@@ -40,3 +40,50 @@ class TestX64Disabled(parameterized.TestCase):
 
 if __name__ == "__main__":
     absltest.main()
+
+
+class TestOutputValidation(parameterized.TestCase):
+    def _jax_fn(self, torch_fn, x, out):
+        from torch2jax import torch2jax
+
+        return torch2jax(torch_fn, x, output_shapes=out, depth=0)
+
+    @parameterized.product(device=["cpu", "cuda"])
+    def test_wrong_output_shape_errors(self, device):
+        import jax, jax.numpy as jnp
+
+        if device == "cuda" and not torch.cuda.is_available():
+            self.skipTest("CUDA not available")
+        x = jax.device_put(jnp.arange(4.0), jax.devices(device)[0])
+        fn = self._jax_fn(lambda a: a[:1] * 10, x, jax.ShapeDtypeStruct((4,), jnp.float32))
+        with self.assertRaisesRegex(Exception, "expected"):
+            jax.block_until_ready(fn(x))
+
+    @parameterized.product(device=["cpu", "cuda"])
+    def test_wrong_output_dtype_and_count_errors(self, device):
+        import jax, jax.numpy as jnp
+
+        if device == "cuda" and not torch.cuda.is_available():
+            self.skipTest("CUDA not available")
+        x = jax.device_put(jnp.arange(4.0, dtype=jnp.float32), jax.devices(device)[0])
+        fn = self._jax_fn(lambda a: a.to(torch.int8), x, x)
+        with self.assertRaisesRegex(Exception, "expected"):
+            jax.block_until_ready(fn(x))
+        fn = self._jax_fn(lambda a: (a, a), x, x)
+        with self.assertRaisesRegex(Exception, "returned 2 outputs"):
+            jax.block_until_ready(fn(x))
+
+    @parameterized.product(
+        device=["cpu", "cuda"],
+        dtype=["complex64", "uint16", "uint32", "float8_e4m3fn", "float8_e5m2", "bfloat16", "bool"],
+    )
+    def test_dtype_roundtrip(self, device, dtype):
+        import jax, jax.numpy as jnp
+        import numpy as np
+
+        if device == "cuda" and not torch.cuda.is_available():
+            self.skipTest("CUDA not available")
+        x = jax.device_put(jnp.arange(8).astype(dtype), jax.devices(device)[0])
+        y = self._jax_fn(lambda a: a.clone(), x, x)(x)
+        self.assertEqual(y.dtype, x.dtype)
+        np.testing.assert_array_equal(np.asarray(y.astype(jnp.float32)), np.asarray(x.astype(jnp.float32)))

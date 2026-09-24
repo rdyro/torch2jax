@@ -9,9 +9,7 @@ ffi::Error cpu_apply_torch_call_impl(ffi::RemainingArgs args,
        array of pointers
     3. call the main `apply_torch_call` routine
   --------------------------------------------------------------------------- */
-  apply_torch_call(args, rets, string(attrs.get<string_view>("fn_id").value()), 
-                   torch::kCPU);
-  return ffi::Error::Success();
+  return apply_torch_call(args, rets, string(attrs.get<string_view>("fn_id").value()), torch::kCPU);
 }
 
 XLA_FFI_DEFINE_HANDLER_SYMBOL(

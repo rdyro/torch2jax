@@ -1,75 +1,53 @@
 #include "main.h"
 
-torch::TensorOptions tensor_dtype(torch::TensorOptions opts,
-                                  ffi::DataType dtype) {
-  // PRED: DataType
-  // S2: DataType
-  // S4: DataType
-  // S8: DataType
-  // S16: DataType
-  // S32: DataType
-  // S64: DataType
-  // U2: DataType
-  // U4: DataType
-  // U8: DataType
-  // U16: DataType
-  // U32: DataType
-  // U64: DataType
-  // F8E3M4: DataType
-  // F8E4M3: DataType
-  // F8E4M3FN: DataType
-  // F8E4M3B11FNUZ: DataType
-  // F8E4M3FNUZ: DataType
-  // F8E5M2: DataType
-  // F8E5M2FNUZ: DataType
-  // BF16: DataType
-  // F16: DataType
-  // F32: DataType
-  // F64: DataType
-  // C64: DataType
-  // C128: DataType
+std::optional<torch::ScalarType> torch_dtype(ffi::DataType dtype) {
   switch (dtype) {
-    case ffi::DataType::PRED:
-      return opts.dtype(torch::kBool);
-    case ffi::DataType::U8:
-      return opts.dtype(torch::kUInt8);
-    case ffi::DataType::S8:
-      return opts.dtype(torch::kInt8);
-    case ffi::DataType::S16:
-      return opts.dtype(torch::kInt16);
-    case ffi::DataType::S32:
-      return opts.dtype(torch::kInt32);
-    case ffi::DataType::S64:
-      return opts.dtype(torch::kInt64);
-    case ffi::DataType::F16:
-      return opts.dtype(torch::kFloat16);
-    case ffi::DataType::BF16:
-      return opts.dtype(torch::kBFloat16);
-    case ffi::DataType::F32:
-      return opts.dtype(torch::kFloat32);
-    case ffi::DataType::F64:
-      return opts.dtype(torch::kFloat64);
-    default:
-      assert(false);
-      return opts;
+    case ffi::DataType::PRED: return torch::kBool;
+    case ffi::DataType::U8: return torch::kUInt8;
+    case ffi::DataType::U16: return torch::kUInt16;
+    case ffi::DataType::U32: return torch::kUInt32;
+    case ffi::DataType::U64: return torch::kUInt64;
+    case ffi::DataType::S8: return torch::kInt8;
+    case ffi::DataType::S16: return torch::kInt16;
+    case ffi::DataType::S32: return torch::kInt32;
+    case ffi::DataType::S64: return torch::kInt64;
+    case ffi::DataType::F16: return torch::kFloat16;
+    case ffi::DataType::BF16: return torch::kBFloat16;
+    case ffi::DataType::F32: return torch::kFloat32;
+    case ffi::DataType::F64: return torch::kFloat64;
+    case ffi::DataType::C64: return torch::kComplexFloat;
+    case ffi::DataType::C128: return torch::kComplexDouble;
+    case ffi::DataType::F8E4M3FN: return torch::kFloat8_e4m3fn;
+    case ffi::DataType::F8E5M2: return torch::kFloat8_e5m2;
+    case ffi::DataType::F8E4M3FNUZ: return torch::kFloat8_e4m3fnuz;
+    case ffi::DataType::F8E5M2FNUZ: return torch::kFloat8_e5m2fnuz;
+    default: return std::nullopt;
   }
 }
 
-torch::TensorOptions tensor_device(torch::TensorOptions opts,
-                                   const TorchCallDevice device) {
-  if (device.type == torch::kCPU)
-    return opts.device(device.type);
-  else
-    return opts.device(device.type, device.index);
+/// @brief Wrap an XLA buffer as a (non-owning) Torch tensor on the device the buffer lives on
+static ffi::Error wrap_buffer(ffi::AnyBuffer buf, torch::DeviceType device_type, set<int64_t>& cuda_devices,
+                              torch::Tensor& out) {
+  auto dtype = torch_dtype(buf.element_type());
+  if (!dtype)
+    return ffi::Error::InvalidArgument("torch2jax: unsupported XLA FFI dtype code " +
+                                       to_string(static_cast<int>(buf.element_type())));
+  auto dims = buf.dimensions();
+  auto dev = actual_device(device_type, buf.untyped_data());
+  if (dev.has_error()) return dev.error();
+  if (dev->type == torch::kCUDA) cuda_devices.insert(dev->index);
+  auto device = dev->type == torch::kCPU ? torch::Device(torch::kCPU) : torch::Device(dev->type, dev->index);
+  auto options = torch::TensorOptions().dtype(*dtype).device(device);
+  vector<int64_t> shape(dims.begin(), dims.end());
+  out = torch::from_blob(buf.untyped_data(), shape, options);
+  return ffi::Error::Success();
 }
 
-torch::TensorOptions tensor_options(ffi::DataType dtype,
-                                    const TorchCallDevice device) {
-  return tensor_device(tensor_dtype(torch::TensorOptions(), dtype), device);
+static void synchronize(const set<int64_t>& cuda_devices) {
+#ifdef TORCH2JAX_WITH_CUDA
+  for (auto idx : cuda_devices) torch::cuda::synchronize(idx);
+#endif
 }
-
-////////////////////////////////////////////////////////////////////////////////
-
 
 /// @brief The main torch call routine, wraps JAX arrays as Torch tensors and
 /// calls the torch fn
@@ -77,14 +55,13 @@ torch::TensorOptions tensor_options(ffi::DataType dtype,
 /// @param rets output buffers
 /// @param fn_id call fn id
 /// @param device_type the accelerator type, device id is detected from pointer
-void apply_torch_call(ffi::RemainingArgs args, ffi::RemainingRets rets,
-    const string& fn_id, torch::DeviceType device_type) {
+ffi::Error apply_torch_call(ffi::RemainingArgs args, ffi::RemainingRets rets, const string& fn_id,
+                            torch::DeviceType device_type) {
   /* ---------------------------------------------------------------------------
   The general strategy for the torch call is as follows:
     1. wrap the input buffers as Torch tensors
-    2. bind the input tensors to the Python module in an identifiable place
-    3. call the identifiable Python torch function which can find those inputs
-    4. unwrap the output tensors and copy them to the output buffers
+    2. call the identifiable Python torch function registered on the torch module
+    3. validate the output tensors and copy them to the output buffers
   --------------------------------------------------------------------------- */
 
   // Attach a Python thread state to this thread if it doesn't have one.
@@ -96,72 +73,46 @@ void apply_torch_call(ffi::RemainingArgs args, ffi::RemainingRets rets,
   py::gil_scoped_acquire py_guard;
 
   // 1. wrap the input buffers as Torch tensors
-  set<int64_t> cuda_device_idxs_seen;
-  PyObject* raw_list = PyList_New(args.size());
-  for (int64_t i = 0; i < args.size(); i++) {
-    auto arg = args.get<ffi::AnyBuffer>(i).value();
-    auto dims = arg.dimensions();
-    vector<int64_t> shape(dims.begin(), dims.end());
-    auto size = torch::IntArrayRef(shape.data(), (size_t)dims.size());
-
-    void* data_ptr = arg.untyped_data();
-    TorchCallDevice device_desc = actual_device(device_type, (void*)data_ptr);
-    if (device_desc.type == torch::kCUDA) {
-      cuda_device_idxs_seen.insert(device_desc.index);
-    }
-    auto options = tensor_options(arg.element_type(), device_desc);
-
-    torch::Tensor tharray = torch::from_blob(data_ptr, size, options);
-    PyList_SET_ITEM(raw_list, i, THPVariable_Wrap(tharray));
+  set<int64_t> cuda_devices;
+  py::list inputs(args.size());
+  for (size_t i = 0; i < args.size(); i++) {
+    torch::Tensor t;
+    if (auto err = wrap_buffer(args.get<ffi::AnyBuffer>(i).value(), device_type, cuda_devices, t); !err.success())
+      return err;
+    inputs[i] = py::reinterpret_steal<py::object>(THPVariable_Wrap(t));
   }
-  py::list my_list = py::reinterpret_steal<py::list>(raw_list);
+  if (device_type == torch::kCUDA) synchronize(cuda_devices);
 
-#ifdef TORCH2JAX_WITH_CUDA
-  if (device_type == torch::kCUDA) {
-    for (auto cuda_device_idx : cuda_device_idxs_seen) {
-      torch::cuda::synchronize(cuda_device_idx);
+  // 2. call the identifiable Python torch function registered on the torch module
+  py::tuple results = py::module_::import("torch").attr(("_torch2jax_fn_" + fn_id).c_str())(inputs);
+  if (results.size() != rets.size())
+    return ffi::Error::InvalidArgument("torch2jax: the torch function returned " + to_string(results.size()) +
+                                       " outputs, but " + to_string(rets.size()) + " were expected");
+
+  // 3. validate the output tensors and copy them to the output buffers
+  cuda_devices.clear();
+  for (size_t i = 0; i < rets.size(); i++) {
+    torch::Tensor dst;
+    if (auto err = wrap_buffer(*rets.get<ffi::AnyBuffer>(i).value(), device_type, cuda_devices, dst); !err.success())
+      return err;
+    PyObject* out = results[i].ptr();
+    if (!THPVariable_Check(out))
+      return ffi::Error::InvalidArgument("torch2jax: output " + to_string(i) + " of the torch function is not a tensor");
+    const torch::Tensor& src = THPVariable_Unpack(out);
+    if (src.sizes() != dst.sizes() || src.scalar_type() != dst.scalar_type()) {
+      std::ostringstream msg;
+      msg << "torch2jax: output " << i << " of the torch function is " << src.scalar_type() << src.sizes()
+          << ", but " << dst.scalar_type() << dst.sizes() << " was expected (check `output_shapes`)";
+      return ffi::Error::InvalidArgument(msg.str());
     }
+    dst.copy_(src);
   }
-#endif
-
-  // 2. bind the input tensors to the Python module in an identifiable place
-  auto mod = py::module_::import("torch");
-  // 3. call the identifiable Python torch function which can find those inputs
-  py::tuple results =
-      mod.attr((string("_torch2jax_fn_") + fn_id).c_str())(my_list);
-
-  // 4. unwrap the output tensors and copy them to the output buffers
-  cuda_device_idxs_seen.clear();
-  for (int64_t i = 0; i < rets.size(); i++) {
-    auto ret = *(rets.get<ffi::AnyBuffer>(i).value());
-    auto dims = ret.dimensions();
-    vector<int64_t> shape(dims.begin(), dims.end());
-    auto size = torch::IntArrayRef(shape.data(), (size_t)dims.size());
-
-    void* data_ptr = ret.untyped_data();
-    TorchCallDevice device_desc = actual_device(device_type, (void*)data_ptr);
-    if (device_desc.type == torch::kCUDA) {
-      cuda_device_idxs_seen.insert(device_desc.index);
-    }
-    auto options = tensor_options(ret.element_type(), device_desc);
-
-    torch::Tensor tharray = torch::from_blob(data_ptr, size, options);
-    PyObject *out = results[i].ptr();
-    THPVariable_Check(out);
-    tharray.copy_(THPVariable_Unpack(out));
-  }
-
-#ifdef TORCH2JAX_WITH_CUDA
-  if (device_type == torch::kCUDA) {
-    for (auto cuda_device_idx : cuda_device_idxs_seen) {
-      torch::cuda::synchronize(cuda_device_idx);
-    }
-  }
-#endif
+  if (device_type == torch::kCUDA) synchronize(cuda_devices);
+  return ffi::Error::Success();
 }
 
 #ifndef TORCH2JAX_WITH_CUDA
-TorchCallDevice actual_device(torch::DeviceType device_type, void* buffer) {
-  return {torch::kCPU, 0};
+ffi::ErrorOr<TorchCallDevice> actual_device(torch::DeviceType device_type, void* buffer) {
+  return TorchCallDevice{torch::kCPU, 0};
 }
 #endif
