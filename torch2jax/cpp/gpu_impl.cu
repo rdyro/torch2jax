@@ -3,10 +3,10 @@
 ffi::Error gpu_apply_torch_call_impl(cudaStream_t stream, 
   ffi::RemainingArgs args, ffi::RemainingRets rets, ffi::Dictionary attrs) {
   /* ---------------------------------------------------------------------------
-  The GPU version of this routine just deserializes the descriptor and calls the
-  main `apply_torch_call` routine.
+  The GPU version of this routine calls the main `apply_torch_call` routine on
+  the XLA stream.
   --------------------------------------------------------------------------- */
-  return apply_torch_call(args, rets, string(attrs.get<string_view>("fn_id").value()), torch::kCUDA);
+  return apply_torch_call(args, rets, string(attrs.get<string_view>("fn_id").value()), torch::kCUDA, stream);
 }
 
 XLA_FFI_DEFINE_HANDLER_SYMBOL(

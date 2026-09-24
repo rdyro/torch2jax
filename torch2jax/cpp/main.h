@@ -6,6 +6,12 @@
 #include <stdio.h>
 #include <torch/extension.h>
 
+#ifdef TORCH2JAX_WITH_CUDA
+#include <c10/cuda/CUDAGuard.h>
+#include <c10/cuda/CUDAStream.h>
+#include <ATen/cuda/CUDAEvent.h>
+#endif
+
 #include "xla/ffi/api/c_api.h"
 #include "xla/ffi/api/ffi.h"
 
@@ -77,6 +83,6 @@ ffi::ErrorOr<TorchCallDevice> actual_device(torch::DeviceType device_type, void*
 /// @brief The main torch call routine, wraps JAX arrays as Torch tensors and
 /// calls the torch fn
 ffi::Error apply_torch_call(ffi::RemainingArgs args, ffi::RemainingRets rets, const string& fn_id,
-                            torch::DeviceType device_type);
+                            torch::DeviceType device_type, void* stream = nullptr);
 
 #endif
