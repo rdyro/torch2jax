@@ -1,6 +1,6 @@
 import jax
 import torch
-from .api import dtype_j2t
+from .utils import dtype_j2t
 from .gradients import torch2jax
 
 

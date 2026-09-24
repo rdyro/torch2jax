@@ -43,6 +43,7 @@ jobs:
       matrix:
         python-version: ["3.11", "3.12"]
         jax-version: ["0.7.2", "latest"]
+        x64: ["True", "False"]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -101,4 +102,4 @@ jobs:
       - name: Run tests
         run: |
           source ~/.venv/bin/activate
-          env JAX_ENABLE_X64=True pytest tests/*
+          env JAX_ENABLE_X64=${{ matrix.x64 }} pytest tests/*

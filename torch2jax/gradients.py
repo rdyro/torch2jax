@@ -8,7 +8,7 @@ from jax import ShapeDtypeStruct
 import numpy as np
 
 from .api import _torch2jax, _SHAPE_CHANGE_WARN_CONCRETE, _SHAPE_CHANGE_WARN_EXPLICIT
-from .utils import _is_floating, dtype_t2j, dtype_j2t, normalize_shapes, warn_once, warn_always
+from .utils import _is_floating, dtype_t2j, normalize_shapes, warn_once, warn_always, shape_key, torch_dtype_like
 
 _ERR_SHARDING_SPEC_UNSUPPORTED = (
     "`output_sharding_spec` not supported in `torch2jax(depth>0)`, it's somewhat difficult to automatically"
@@ -182,18 +182,22 @@ def torch2jax(
 
     # shape-aware cache for automatic re-wrapping on shape changes
     _vjp_cache = {}
-    _original_vjp_key = tuple((tuple(a.shape), dtype_t2j(a.dtype)) for a in jax.tree.leaves(example_args))
+    _original_vjp_key = shape_key(example_args)
     format_key = lambda key: ", ".join([f"{np.dtype(k[1]).name}{list(k[0])}" for k in key])
-    zeros_like = lambda x: torch.zeros(jax.typeof(x).shape, dtype=dtype_j2t(jax.typeof(x).dtype))
+    torch_dtypes = [x.dtype if isinstance(x, torch.Tensor) else None for x in example_args_flat]
 
     def _cached_fn(*args):
-        key = tuple((tuple(jax.typeof(a).shape), jax.typeof(a).dtype) for a in jax.tree.leaves(args))
+        key = shape_key(args)
         if key == _original_vjp_key:
             return fn(*args)
         if key not in _vjp_cache:
             msg = _SHAPE_CHANGE_WARN_EXPLICIT if _had_output_shapes else _SHAPE_CHANGE_WARN_CONCRETE
             warn_always(msg.format(format_key(_original_vjp_key), format_key(key)))
-            dummy_args = jax.tree.map(zeros_like, args)
+            dummy_flat = [
+                torch.zeros(a.shape, dtype=torch_dtype_like(a.dtype, dt))
+                for a, dt in zip(jax.tree.leaves(args), torch_dtypes)
+            ]
+            dummy_args = jax.tree.unflatten(jax.tree.structure(args), dummy_flat)
             _vjp_cache[key] = torch2jax(
                 torch_fn,
                 *dummy_args,

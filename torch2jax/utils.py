@@ -75,6 +75,22 @@ def dtype_j2t(dtype: jnp.dtype) -> torch.dtype:
         raise ValueError("Unsupported dtype: {}".format(dtype))
 
 
+def canonical_dtype(dtype) -> jnp.dtype:
+    """The dtype JAX actually uses for `dtype` (torch or jax) under the current x64 setting."""
+    return jax.dtypes.canonicalize_dtype(dtype_t2j(dtype))
+
+
+def shape_key(xs: Any) -> tuple:
+    """Hashable (shape, canonical dtype) key of all leaves of `xs`, used for shape-change caching."""
+    avals = [x if hasattr(x, "shape") and hasattr(x, "dtype") else jax.typeof(x) for x in jax.tree.leaves(xs)]
+    return tuple((tuple(x.shape), canonical_dtype(x.dtype)) for x in avals)
+
+
+def torch_dtype_like(dtype, like: torch.dtype | None = None) -> torch.dtype:
+    """Torch dtype for `dtype`, preferring `like` (e.g., int64 for int32 under disabled x64) if they are equivalent."""
+    return like if like is not None and canonical_dtype(like) == canonical_dtype(dtype) else dtype_j2t(dtype)
+
+
 def dtype_j2m(cpp_module: ModuleType, dtype: jnp.dtype) -> int:
     """Translate jax dtype to integer denoting dtype in the torch2jax cpp extension module."""
     if dtype == jnp.bool:
