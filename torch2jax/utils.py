@@ -80,6 +80,33 @@ def torch_dtype_like(dtype, like: torch.dtype | None = None) -> torch.dtype:
     return like if like is not None and canonical_dtype(like) == canonical_dtype(dtype) else dtype_j2t(dtype)
 
 
+def default_torch_device() -> torch.device:
+    return torch.device("cuda") if jax.default_backend() == "gpu" and torch.cuda.is_available() else torch.device("cpu")
+
+
+def placeholder_like(x: Any, torch_dtype: torch.dtype | None = None) -> Tensor:
+    """A meta-device (no memory) torch tensor with the shape and (torch-preferred) dtype of `x`."""
+    return torch.empty(tuple(x.shape), dtype=torch_dtype_like(x.dtype, torch_dtype), device="meta")
+
+
+def infer_outputs(fn, args: Any, kw: dict | None = None) -> Any:
+    """Run `fn` to discover its outputs: on meta tensors when possible, otherwise on concrete tensors.
+
+    Concrete example tensors are used as-is in the fallback; placeholders become zeros on the default device.
+    """
+    is_array = lambda x: not isinstance(x, Tensor) and hasattr(x, "shape") and hasattr(x, "dtype")
+    args, kw = jax.tree.map(lambda x: placeholder_like(x) if is_array(x) else x, (args, {} if kw is None else kw))
+    is_concrete = lambda x: isinstance(x, Tensor) and not x.is_meta
+    with torch.no_grad():
+        try:
+            meta_args, meta_kw = jax.tree.map(lambda x: x.to("meta") if is_concrete(x) else x, (args, kw))
+            return fn(*meta_args, **meta_kw)
+        except Exception:  # e.g., the function mixes inputs with device-resident weights or is data-dependent
+            device = default_torch_device()
+            args, kw = jax.tree.map(lambda x: torch.zeros_like(x, device=device) if x.is_meta else x, (args, kw))
+            return fn(*args, **kw)
+
+
 def dtype_j2m(cpp_module: ModuleType, dtype: jnp.dtype) -> int:
     """Translate jax dtype to integer denoting dtype in the torch2jax cpp extension module."""
     if dtype == jnp.bool:

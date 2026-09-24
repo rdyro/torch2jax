@@ -8,19 +8,27 @@ from jax import ShapeDtypeStruct
 import numpy as np
 
 from .api import _torch2jax, _SHAPE_CHANGE_WARN_CONCRETE, _SHAPE_CHANGE_WARN_EXPLICIT
-from .utils import _is_floating, dtype_t2j, normalize_shapes, warn_once, warn_always, shape_key, torch_dtype_like
+from .utils import (
+    _is_floating,
+    dtype_t2j,
+    normalize_shapes,
+    warn_once,
+    warn_always,
+    shape_key,
+    placeholder_like,
+    infer_outputs,
+)
 
 _ERR_SHARDING_SPEC_UNSUPPORTED = (
     "`output_sharding_spec` not supported in `torch2jax(depth>0)`, it's somewhat difficult to automatically"
     " define sharding spec for automatically defined vjp functions. As a work-around, please use this function"
     " inside `shard_map` without specifying `output_sharding_spec` - you don't need to specify the specs there."
 )
-_WARN_OLD_BACKWARD_FN = (
-    "Somewhere in your PyTorch computation graph, a custom backward function is defined in the old way"
-    ' (see "https://pytorch.org/docs/stable/notes/extending.html"). This is only experimentally'
-    " supported in torch2jax. We will use a fallback based on `torch.autograd.grad` instead. Please"
-    " pass `use_torch_vjp=False` to `torch2jax` if you wish to use this fallback explicitly."
-    " Original error message:\n{}"
+_WARN_VJP_FALLBACK = (
+    "`torch.func.vjp` failed on your PyTorch function, e.g., because a custom backward function is defined in the"
+    ' old way (see "https://pytorch.org/docs/stable/notes/extending.html") or the function accesses tensor data'
+    " (`.numpy()`, `.data_ptr()`). We used a fallback based on `torch.autograd.grad` instead. Please pass"
+    " `use_torch_vjp=False` to `torch2jax` if you wish to use this fallback explicitly. Original error message:\n{}"
 )
 _WARN_EXPERIMENTAL_VJP = "You are NOT using PyTorch's functional VJP. This is highly experimental."
 _WARN_TORCH2JAX_WITH_VJP_DEPRECATED = "`torch2jax_with_vjp` is deprecated, use `torch2jax(..., depth=2)` instead."
@@ -84,7 +92,7 @@ def torch2jax(
     _had_output_shapes = output_shapes is not None
 
     if output_shapes is None and depth > 0:
-        outputs = torch_fn(*example_args)
+        outputs = infer_outputs(torch_fn, example_args)
         output_shapes = jax.tree.map(lambda x: ShapeDtypeStruct(dtype=dtype_t2j(x.dtype), shape=x.shape), outputs)
     fn = _torch2jax(
         torch_fn, *example_args, example_kw=example_kw, output_shapes=output_shapes, vmap_method=vmap_method
@@ -132,25 +140,30 @@ def torch2jax(
         gs_flat = jax.tree.flatten(gs)[0]
 
         # use either torch's vjp or our custom vjp only wrt differentiable arguments ###############
-        grads_computed = False
+        diff_vjp_vals_flat, vjp_error = None, None
         if use_torch_vjp:
             try:
                 diff_vjp_vals_flat = list(
                     torch.func.vjp(partial(_torch_fn_diff_flat, all_args_flat=args_flat), *diff_args_flat)[1](gs_flat)
                 )
-                grads_computed = True
-            except RuntimeError:
-                warn_once(_WARN_OLD_BACKWARD_FN.format(traceback.format_exc()), torch_fn)
-                grads_computed = False
-        if not grads_computed:
-            if not use_torch_vjp:
-                warn_once(_WARN_EXPERIMENTAL_VJP, torch_fn)
-            [diff_arg_flat.requires_grad_(True) for diff_arg_flat in diff_args_flat]
-            ret = sum(
-                torch.sum(g * r)
-                for (g, r) in zip(gs_flat, _torch_fn_diff_flat(*diff_args_flat, all_args_flat=args_flat))
-            )
-            diff_vjp_vals_flat = list(torch.autograd.grad(ret, diff_args_flat, create_graph=True))
+            except RuntimeError as e:
+                vjp_error = e
+        else:
+            warn_once(_WARN_EXPERIMENTAL_VJP, torch_fn)
+        if diff_vjp_vals_flat is None:
+            try:
+                [diff_arg_flat.requires_grad_(True) for diff_arg_flat in diff_args_flat]
+                ret = sum(
+                    torch.sum(g * r)
+                    for (g, r) in zip(gs_flat, _torch_fn_diff_flat(*diff_args_flat, all_args_flat=args_flat))
+                )
+                diff_vjp_vals_flat = list(torch.autograd.grad(ret, diff_args_flat, create_graph=True))
+            except Exception:
+                if vjp_error is None:
+                    raise
+                raise vjp_error  # the fallback failed too, report the torch.func error (fallback error as context)
+            if vjp_error is not None:
+                warn_once(_WARN_VJP_FALLBACK.format("".join(traceback.format_exception(vjp_error))), torch_fn)
 
         # reconstruct the full vjp including for nondiff arguments #################################
         vjp_vals_flat = []
@@ -193,10 +206,7 @@ def torch2jax(
         if key not in _vjp_cache:
             msg = _SHAPE_CHANGE_WARN_EXPLICIT if _had_output_shapes else _SHAPE_CHANGE_WARN_CONCRETE
             warn_always(msg.format(format_key(_original_vjp_key), format_key(key)))
-            dummy_flat = [
-                torch.zeros(a.shape, dtype=torch_dtype_like(a.dtype, dt))
-                for a, dt in zip(jax.tree.leaves(args), torch_dtypes)
-            ]
+            dummy_flat = [placeholder_like(a, dt) for a, dt in zip(jax.tree.leaves(args), torch_dtypes)]
             dummy_args = jax.tree.unflatten(jax.tree.structure(args), dummy_flat)
             _vjp_cache[key] = torch2jax(
                 torch_fn,

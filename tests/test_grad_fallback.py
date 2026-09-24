@@ -93,6 +93,23 @@ class TestGradFallback(parameterized.TestCase):
         self.assertLess(err_g, 1e-5)
         self.assertLess(err_h, 1e-5)
 
+    def test_vjp_fallback_on_data_access(self):
+        # torch.func.vjp cannot access tensor data (e.g., `.numpy()`), the torch.autograd.grad fallback can
+        scale = lambda x: float(x.detach().cpu().numpy().sum())
+        fn = torch2jax_with_vjp(lambda x: x * scale(x), torch.ones(4), depth=1)
+        g = jax.grad(lambda x: jnp.sum(fn(x)))(jnp.arange(4.0))
+        self.assertTrue(jnp.allclose(g, 6.0 * jnp.ones(4)))
+
+    def test_vjp_error_when_fallback_fails(self):
+        def torch_fn(x):
+            if x.requires_grad or torch._C._functorch.is_functorch_wrapped_tensor(x):
+                raise RuntimeError("genuine backward error")
+            return 2 * x
+
+        fn = torch2jax_with_vjp(torch_fn, torch.ones(4), depth=1)
+        with self.assertRaisesRegex(Exception, "genuine backward error"):
+            jax.block_until_ready(jax.grad(lambda x: jnp.sum(fn(x)))(jnp.ones(4)))
+
 
 if __name__ == "__main__":
     absltest.main()

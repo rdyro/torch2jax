@@ -20,17 +20,17 @@ from jax.sharding import NamedSharding, PartitionSpec, Mesh
 
 from .compile import compile_and_import_module
 from .utils import find_unique_id, dtype_t2j, dtype_j2t, normalize_shapes, warn_once, warn_always
-from .utils import canonical_dtype, shape_key, torch_dtype_like
+from .utils import canonical_dtype, shape_key, placeholder_like, infer_outputs
 
 zip_ = zip
 zip = functools.partial(zip_, strict=True)
 
 _SHAPE_CHANGE_WARN_EXPLICIT = (
-    "torch2jax: input shapes changed, but `output_shapes` was explicitly provided. Output shapes for the new"
-    " inputs will be inferred by running the torch function with `torch.zeros` tensors.\nExpecting: {}\nActual:    {}"
+    "torch2jax: input shapes changed, but `output_shapes` was explicitly provided. Output shapes for the new inputs"
+    " will be inferred by re-running the torch function on placeholder (meta) tensors.\nExpecting: {}\nActual:    {}"
 )
 _SHAPE_CHANGE_WARN_CONCRETE = (
-    "torch2jax: input shapes changed. The torch function will be re-run with `torch.zeros` tensors"
+    "torch2jax: input shapes changed. The torch function will be re-run on placeholder (meta) tensors"
     " (not the original concrete inputs) to infer output shapes for the new input shapes.\nExpecting: {}\nActual:    {}"
 )
 _WARN_OUTPUT_SHAPES_FORMAT = (
@@ -229,8 +229,7 @@ def _torch2jax(
 
     # find the output structure
     if output_shapes is None:
-        with torch.no_grad():
-            output = fn(*example_args, **example_kw) if has_kw else fn(*example_args)
+        output = infer_outputs(fn, example_args, example_kw)
         output_shapes, output_struct = jax.tree.flatten(
             jax.tree.map(lambda x: ShapeDtypeStruct(x.shape, dtype_t2j(x.dtype)), output)
         )
@@ -282,10 +281,7 @@ def _torch2jax(
             if key not in _cache:
                 msg = _SHAPE_CHANGE_WARN_EXPLICIT if _had_output_shapes else _SHAPE_CHANGE_WARN_CONCRETE
                 warn_always(msg.format(format_key(_original_shape_key), format_key(key)))
-                dummy_flat = [
-                    torch.zeros(a.shape, dtype=torch_dtype_like(a.dtype, dt))
-                    for a, dt in zip(jax.tree.leaves(args), torch_dtypes)
-                ]
+                dummy_flat = [placeholder_like(a, dt) for a, dt in zip(jax.tree.leaves(args), torch_dtypes)]
                 dummy_tree = jax.tree.unflatten(input_struct, dummy_flat)
                 opts = dict(output_sharding_spec=output_sharding_spec, vmap_method=vmap_method)
                 dummy_args, dummy_kw = dummy_tree if has_kw else (dummy_tree, None)
