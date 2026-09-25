@@ -1,4 +1,7 @@
+import contextlib
 import functools
+import threading
+from contextlib import AbstractContextManager
 from typing import Callable, Any
 
 import torch
@@ -32,14 +35,18 @@ _WARN_OUTPUT_SHAPES_FORMAT = (
     " containers with only integer entries are shapes (for compatibility), but this is very error-prone."
 )
 _MISMATCH_ARGS_KW_MSG = "Provided (args, kw) =\n{} do not match the torch2jax function's expected input structure =\n{}"
-_WARN_OUTPUT_SHARDING_SPEC_DEPRECATED = "`output_sharding_spec` is deprecated, use `out_specs` instead."
 _MISMATCH_ARGS_MSG = "Provided args =\n{} do not match the torch2jax function's expected input structure =\n{}"
+_WARN_OUTPUT_SHARDING_SPEC_DEPRECATED = "`output_sharding_spec` is deprecated, use `out_specs` instead."
+
+# one lock for all torch calls: forward and backward functions are separate registrations that may share state
+_TORCH_CALL_LOCK = threading.RLock()
 
 
 def _torch2jax_flat(
     fn: Callable,
     output_shapes: list[jax.Array | Tensor | ShapeDtypeStruct] = None,
     vmap_method: str = "sequential",
+    lock: bool | AbstractContextManager = False,
 ) -> Callable:
     """Define a jit-compatible JAX function that calls a PyTorch function. Flat
     arguments and outputs.
@@ -47,6 +54,7 @@ def _torch2jax_flat(
     Args:
         fn (Callable): PyTorch function.
         output_shapes: Output shapes (or shapes with dtype). Defaults to None.
+        lock: Call `fn` under a lock (see `torch2jax_without_vjp`).
     Returns:
         Callable: Wrapped jit-compatible jax function.
     """
@@ -57,8 +65,11 @@ def _torch2jax_flat(
     outshapes = jax.tree.map(lambda x: ShapeDtypeStruct(x.shape, canonical_dtype(x.dtype)), output_shapes)
     out_dtypes = [dtype_j2t(x.dtype) for x in jax.tree.leaves(outshapes)]
 
+    lock_ctx = _TORCH_CALL_LOCK if lock is True else (lock or contextlib.nullcontext())
+
     def torch_call_fn_(args: list[torch.Tensor]):
-        out = fn(*args)
+        with lock_ctx:
+            out = fn(*args)
         out = (out,) if isinstance(out, Tensor) else tuple(out)
         if len(out) != len(out_dtypes):
             return out  # reported as an error by the FFI call
@@ -84,6 +95,7 @@ def _torch2jax(
     output_shapes: Any = None,
     out_specs: Any | None = None,
     vmap_method: str = "sequential",
+    lock: bool | AbstractContextManager = False,
     output_sharding_spec: PartitionSpec | None = None,
 ) -> Callable:
     """Define a jit-compatible JAX function that calls a PyTorch function.  Arbitrary nesting of
@@ -103,6 +115,12 @@ def _torch2jax(
             NOTE: only vmap_method="sequential" is supported non-experimentally
 
             NOTE: try "expand_dims", "broadcast_all" if you want to experiment with pytorch-side batching
+        lock: Call the torch function under a lock: `True` for a process-wide lock shared by all torch2jax functions,
+            or a lock object (e.g., a `threading.Lock` per model). On multiple devices, the torch function is called
+            concurrently from one thread per device; a lock protects stateful torch code (e.g.,
+            `torch.func.functional_call` on a shared module). The GPUs still compute in parallel, since torch only
+            enqueues work, unless the function synchronizes with the host (e.g., `.item()`, `.cpu()`,
+            data-dependent shapes), in which case the devices run one after another.
         output_sharding_spec: Deprecated alias for `out_specs`.
     Returns:
         Callable: JIT-compatible JAX function.
@@ -172,6 +190,7 @@ def _torch2jax(
         flat_fn,
         output_shapes=output_shapes,
         vmap_method=vmap_method,
+        lock=lock,
     )
 
     # shape-aware cache for automatic re-wrapping on shape changes
@@ -189,7 +208,7 @@ def _torch2jax(
                 dummy_flat = [placeholder_like(a, dt) for a, dt in zip(jax.tree.leaves(args), torch_dtypes)]
                 dummy_tree = jax.tree.unflatten(input_struct, dummy_flat)
                 dummy_args, dummy_kw = dummy_tree if has_kw else (dummy_tree, None)
-                opts = dict(example_kw=dummy_kw, vmap_method=vmap_method)
+                opts = dict(example_kw=dummy_kw, vmap_method=vmap_method, lock=lock)
                 if _had_output_shapes and to_local is not None:  # split the global output shapes, don't run fn
                     opts["output_shapes"] = to_local(jax.tree.unflatten(output_struct, output_shapes))
                 _cache[key] = _torch2jax(fn, *dummy_args, **opts)

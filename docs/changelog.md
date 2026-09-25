@@ -26,6 +26,7 @@
   - on multiple devices the torch function is called concurrently (one thread per device),
     stateful torch code, e.g., `torch.func.functional_call` on a shared module, must be guarded
   - `jax.pmap` works (with recent JAX)
+  - `lock=True` (or a lock object) guards torch calls, which run concurrently per device
 
 - version 0.8.0
   - **breaking**: `torch2jax` now defines gradients by default (`depth=2`), unifying

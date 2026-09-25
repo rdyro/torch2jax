@@ -188,14 +188,16 @@ to JAX, so `torch2jax` **never implicitly all-gathers sharded inputs**:
 Gradients work in both cases.
 
 On multiple devices, the torch function is called **concurrently**, once per
-device, from different threads. Pure tensor code is fine, but guard stateful
-torch code, e.g., `torch.func.functional_call` temporarily swaps the parameters
-of a shared module, so it needs a lock (or a module per device) &mdash; otherwise
-gradients can be silently wrong.
+device, from different threads. Pure tensor code is fine, but stateful torch
+code, e.g., `torch.func.functional_call` (it temporarily swaps the parameters of
+a shared module), can silently produce wrong results. Pass `lock=True` to run
+all torch calls under a process-wide lock (or `lock=my_lock` for your own lock,
+e.g., one per model). The GPUs still compute in parallel, since torch only
+enqueues work, unless the torch function synchronizes with the host (`.item()`,
+`.cpu()`, data-dependent shapes like `x[mask]`), in which case the devices run
+one after another.
 
 ```python
-import threading
-
 import torch
 import jax
 from jax.sharding import PartitionSpec as P, NamedSharding
@@ -203,20 +205,14 @@ from torch2jax import torch2jax
 
 model = torch.nn.Sequential(torch.nn.Linear(1024, 1024), torch.nn.SiLU(), torch.nn.Linear(1024, 16))
 params = {k: jax.numpy.asarray(v.detach().numpy()) for k, v in model.named_parameters()}
-lock = threading.Lock()  # functional_call mutates the shared `model`, devices call torch concurrently
-
-
-def call_model(x, params):
-    with lock:
-        return torch.func.functional_call(model, params, x)
-
+call_model = lambda x, params: torch.func.functional_call(model, params, x)
 
 mesh = jax.make_mesh((jax.device_count(),), ("x",))  # explicit axes by default
 params = jax.device_put(params, NamedSharding(mesh, P()))  # replicated
 x = jax.device_put(jax.numpy.ones((128, 1024)), NamedSharding(mesh, P("x")))  # sharded along the batch
 
 # 1. explicit sharding: the torch function runs per-shard, the output is sharded along "x"
-fwd_fn = torch2jax(call_model, x, params, out_specs=P("x"))
+fwd_fn = torch2jax(call_model, x, params, out_specs=P("x"), lock=True)  # functional_call mutates `model`
 with jax.set_mesh(mesh):
     y = jax.jit(fwd_fn)(x, params)
     grads = jax.jit(jax.grad(lambda params: jax.numpy.sum(fwd_fn(x, params) ** 2)))(params)
@@ -225,7 +221,7 @@ with jax.set_mesh(mesh):
 @jax.jit
 @jax.shard_map(mesh=mesh, in_specs=(P("x"), P()), out_specs=P("x"))
 def fwd_fn_shard_map(x, params):
-    return torch2jax(call_model, x, params)(x, params)
+    return torch2jax(call_model, x, params, lock=True)(x, params)
 ```
 
 <p align="center">

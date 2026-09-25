@@ -1,4 +1,5 @@
 import traceback
+from contextlib import AbstractContextManager
 from typing import Callable, Any
 from functools import partial
 
@@ -45,6 +46,7 @@ def torch2jax(
     use_zeros: bool = True,
     use_torch_vjp: bool = True,
     vmap_method: str = "sequential",
+    lock: bool | AbstractContextManager = False,
 ) -> Callable:
     """Define a jit-compatible JAX function that calls a PyTorch function, optionally with custom VJP rules.
 
@@ -71,6 +73,8 @@ def torch2jax(
             NOTE: only vmap_method="sequential" is supported non-experimentally
 
             NOTE: try "expand_dims", "broadcast_all" if you want to experiment with pytorch-side batching
+        lock: Call the torch function (and its VJP) under a lock: `True` for a process-wide lock, or a lock object,
+            to protect stateful torch code called concurrently on multiple devices. See `torch2jax_without_vjp`.
     Returns:
         Callable: JIT-compatible JAX version of the torch function (VJP defined up to depth `depth`).
 
@@ -101,6 +105,7 @@ def torch2jax(
         output_shapes=output_shapes,
         out_specs=out_specs if depth <= 0 else None,  # for depth > 0, sharding is handled around the custom_vjp
         vmap_method=vmap_method,
+        lock=lock,
     )
 
     # if this we've reached the requested differentiation depth, refrain from defining a vjp rule ##
@@ -194,6 +199,7 @@ def torch2jax(
         depth=depth - 1,
         use_torch_vjp=use_torch_vjp,
         vmap_method=vmap_method,
+        lock=lock,
     )
     # define the custom vjp using the fwd_fn and bwd_fn ############################################
     fn.defvjp(fwd_fn, bwd_fn)
@@ -227,6 +233,7 @@ def torch2jax(
                 use_zeros=use_zeros,
                 use_torch_vjp=use_torch_vjp,
                 vmap_method=vmap_method,
+                lock=lock,
             )
         return _vjp_cache[key](*args)
 

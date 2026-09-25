@@ -130,14 +130,10 @@ class TestDataParallelTraining(parameterized.TestCase):
         params = {k: jnp.asarray(v.detach().numpy()) for k, v in model.named_parameters()}
         params = jax.device_put(params, NamedSharding(mesh, P()))
         x, y = _put(_randn(0, (8 * n, 16)), mesh, P("x")), _put(_randn(1, (8 * n, 1)), mesh, P("x"))
-        lock = threading.Lock()  # functional_call swaps the shared module's params, devices call torch concurrently
-
-        def torch_model(x, params):
-            with lock:
-                return torch.func.functional_call(model, params, x)
-
+        torch_model = lambda x, params: torch.func.functional_call(model, params, x)
         jax_model = lambda x, p: jnp.tanh(x @ p["0.weight"].T + p["0.bias"]) @ p["2.weight"].T + p["2.bias"]
-        f = torch2jax(torch_model, x, params, out_specs=P("x"))
+        # functional_call swaps the shared module's params, devices call torch concurrently
+        f = torch2jax(torch_model, x, params, out_specs=P("x"), lock=True)
 
         def step(model_fn):
             @jax.jit
@@ -176,6 +172,47 @@ class TestConcurrentCalls(parameterized.TestCase):
         with jax.set_mesh(mesh):
             jax.block_until_ready(jax.jit(torch2jax(torch_fn, x, depth=0, out_specs=P("x")))(x))
         self.assertLen(threads, mesh.devices.size)
+
+
+class TestLock(parameterized.TestCase):
+    @parameterized.product(lock=["none", "global", "custom"], depth=[0, 2])
+    def test_lock_limits_concurrency_to_one(self, lock, depth):
+        mesh = _mesh()
+        active, peak, counter_lock = [0], [0], threading.Lock()
+
+        def torch_fn(a):
+            if a.is_meta:
+                return a + 1
+            with counter_lock:
+                active[0] += 1
+                peak[0] = max(peak[0], active[0])
+            time.sleep(0.05)  # releases the GIL, so unlocked calls overlap
+            with counter_lock:
+                active[0] -= 1
+            return a + 1
+
+        x = _put(jnp.ones((8 * mesh.devices.size, 4)), mesh, P("x"))
+        lock_arg = {"none": False, "global": True, "custom": threading.Lock()}[lock]
+        f = torch2jax(torch_fn, x, depth=depth, out_specs=P("x"), lock=lock_arg)
+        with jax.set_mesh(mesh):
+            y = jax.block_until_ready(jax.jit(jax.grad(lambda x: jnp.sum(f(x))) if depth else f)(x))
+        np.testing.assert_allclose(np.asarray(y), 1.0 if depth else 2.0)
+        self.assertEqual(peak[0], 1) if lock != "none" else self.assertGreater(peak[0], 1)
+
+    def test_lock_fixes_shared_module_functional_call(self):
+        mesh = _mesh()
+        model = torch.nn.Sequential(torch.nn.Linear(16, 32), torch.nn.Tanh(), torch.nn.Linear(32, 1))
+        params = {k: jnp.asarray(v.detach().numpy()) for k, v in model.named_parameters()}
+        params = jax.device_put(params, NamedSharding(mesh, P()))
+        x = _put(_randn(0, (8 * mesh.devices.size, 16)), mesh, P())
+        f = torch2jax(lambda x, p: torch.func.functional_call(model, p, x), x, params, lock=True)
+        jax_model = lambda x, p: jnp.tanh(x @ p["0.weight"].T + p["0.bias"]) @ p["2.weight"].T + p["2.bias"]
+        with jax.set_mesh(mesh), jax.default_matmul_precision("highest"):
+            for _ in range(3):
+                g = jax.jit(jax.grad(lambda p: jnp.sum(f(x, p) ** 2)))(params)
+                g_ref = jax.jit(jax.grad(lambda p: jnp.sum(jax_model(x, p) ** 2)))(params)
+                for k in g:
+                    np.testing.assert_allclose(np.asarray(g[k]), np.asarray(g_ref[k]), rtol=1e-4, atol=1e-5)
 
 
 class TestTransformsUnderSharding(parameterized.TestCase):
