@@ -97,34 +97,19 @@ class MultiDeviceTest(parameterized.TestCase):
         seed=[0, 1, 2], device=["cpu", "cuda"], size0=[256], size1=[8, 16], simulate_compute=[True, False]
     )
     def test_pmap(self, seed, device, size0, size1, simulate_compute):
-        self.skipTest("`pmap` doesn't work (just hangs), TODO(rdyro): more debugging needed")
-
         if device == "cuda" and not CUDA_AVAILABLE:
             self.skipTest("CUDA not available, skipping CUDA test")
-        mesh, sharding, shape, (a, b) = _generate_data(seed, devices=jax.devices(device))
-
-        fn_ = jax.jit(
-            jax.pmap(
-                torch2jax_without_vjp(
-                    torch_fn, a[0, ...], b[0, ...], output_shapes=jax.ShapeDtypeStruct(a.shape[1:], a.dtype)
-                ),
-                in_axes=(0, 0),
-                out_axes=0,
-                devices=mesh.devices.reshape(-1),
-            )
+        devices = jax.devices(device)
+        if len(devices) < 2:
+            self.skipTest("pmap needs >= 2 devices")
+        keys = iter(random.split(random.key(seed), 1024))
+        a, b = (random.normal(next(keys), (len(devices), size0, size1)) for _ in range(2))
+        per_device = jax.ShapeDtypeStruct((size0, size1), a.dtype)
+        f = torch2jax_without_vjp(
+            partial(torch_fn, simulate_compute=simulate_compute), per_device, per_device, output_shapes=per_device
         )
-
-        c = fn_(a, b).block_until_ready()
-        print("done with c")
-        c_torch = tree_t2j(torch_fn(*jax.tree.map(lambda x: j2t(_to_device0(x, mesh.devices)), (a, b))))
-        print("done with torch")
-        c = _to_device0(c, mesh.devices)
-        print(f"c = {c}\nc_torch = {c_torch}")
-
-        print("result sharding =")
-        jax.debug.visualize_array_sharding(c)
-        c = _to_device0(c, mesh.devices)
-        np.testing.assert_allclose(np.array(c_torch), np.array(c))
+        c = jax.pmap(f, devices=devices)(a, b)
+        np.testing.assert_allclose(np.asarray(c), np.asarray(a + b), rtol=1e-6, atol=1e-6)
 
     @parameterized.product(
         seed=[0, 1, 2], device=["cpu", "cuda"], size0=[1024, 16], size1=[1024, 16], simulate_compute=[True, False]

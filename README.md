@@ -187,7 +187,15 @@ to JAX, so `torch2jax` **never implicitly all-gathers sharded inputs**:
 
 Gradients work in both cases.
 
+On multiple devices, the torch function is called **concurrently**, once per
+device, from different threads. Pure tensor code is fine, but guard stateful
+torch code, e.g., `torch.func.functional_call` temporarily swaps the parameters
+of a shared module, so it needs a lock (or a module per device) &mdash; otherwise
+gradients can be silently wrong.
+
 ```python
+import threading
+
 import torch
 import jax
 from jax.sharding import PartitionSpec as P, NamedSharding
@@ -195,7 +203,13 @@ from torch2jax import torch2jax
 
 model = torch.nn.Sequential(torch.nn.Linear(1024, 1024), torch.nn.SiLU(), torch.nn.Linear(1024, 16))
 params = {k: jax.numpy.asarray(v.detach().numpy()) for k, v in model.named_parameters()}
-call_model = lambda x, params: torch.func.functional_call(model, params, x)
+lock = threading.Lock()  # functional_call mutates the shared `model`, devices call torch concurrently
+
+
+def call_model(x, params):
+    with lock:
+        return torch.func.functional_call(model, params, x)
+
 
 mesh = jax.make_mesh((jax.device_count(),), ("x",))  # explicit axes by default
 params = jax.device_put(params, NamedSharding(mesh, P()))  # replicated
@@ -297,6 +311,10 @@ the GPU.
     run to infer per-shard output shapes
   - the `torch.autograd.grad` VJP fallback is used whenever `torch.func.vjp` fails (e.g.,
     `.numpy()` in the function), the original error is raised if the fallback fails too
+  - fixed `t2j` of CUDA tensors on multi-GPU hosts when another GPU is the current device
+  - on multiple devices the torch function is called concurrently (one thread per device),
+    stateful torch code, e.g., `torch.func.functional_call` on a shared module, must be guarded
+  - `jax.pmap` works (with recent JAX)
 
 - version 0.8.0
   - **breaking**: `torch2jax` now defines gradients by default (`depth=2`), unifying

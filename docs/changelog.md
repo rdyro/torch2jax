@@ -22,6 +22,10 @@
     run to infer per-shard output shapes
   - the `torch.autograd.grad` VJP fallback is used whenever `torch.func.vjp` fails (e.g.,
     `.numpy()` in the function), the original error is raised if the fallback fails too
+  - fixed `t2j` of CUDA tensors on multi-GPU hosts when another GPU is the current device
+  - on multiple devices the torch function is called concurrently (one thread per device),
+    stateful torch code, e.g., `torch.func.functional_call` on a shared module, must be guarded
+  - `jax.pmap` works (with recent JAX)
 
 - version 0.8.0
   - **breaking**: `torch2jax` now defines gradients by default (`depth=2`), unifying
