@@ -301,7 +301,7 @@ the GPU.
 
 # Changelog
 
-- unreleased
+- version 0.9.0
   - **breaking**: sharding follows JAX's explicit sharding model: inputs sharded along
     explicit mesh axes are never implicitly all-gathered, pass `out_specs=` to call the
     torch function per-shard (inside `jax.shard_map`), `out_specs` also works with gradients
