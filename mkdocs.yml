@@ -55,6 +55,7 @@ markdown_extensions:
 
 nav:
   - Overview: index.md
+  - Multi-device: multi_device.md
   - Installation: installation.md
   - Roadmap: roadmap.md
   - Changelog: changelog.md

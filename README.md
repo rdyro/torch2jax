@@ -18,6 +18,11 @@ executing arbitrary PyTorch code from JAX under eager execution and JIT.
 The intended application is efficiently running existing PyTorch code (like ML
 models) in JAX applications with very low overhead.
 
+`torch2jax` also runs PyTorch code on **multiple devices**: on sharded JAX arrays
+across multiple GPUs, under `jax.jit` and with gradients. The torch function runs
+concurrently on each device's shard, without hidden all-gathers or device
+synchronization, see [Multi-device (multi-GPU) support](#multi-device-multi-gpu-support).
+
 This project was inspired by the jax2torch repository
 [https://github.com/lucidrains/jax2torch](https://github.com/lucidrains/jax2torch)
 and has been made possible due to an amazing tutorial on extending JAX
@@ -118,70 +123,29 @@ specification of the wrapped function, take a look at:
 [input_output_specification.ipynb](./examples/input_output_specification.ipynb)
 notebook in the `examples` folder.
 
-# Automatically defining gradients
+# Multi-device (multi-GPU) support
 
-`torch2jax` defines reverse-mode gradients (VJP rules) by default (`depth=2`).
-The `depth` parameter controls how many times the function can be differentiated.
+`torch2jax` runs PyTorch code on sharded JAX arrays, across multiple GPUs, under
+`jax.jit` and with gradients. The recommended way is JAX's **explicit
+sharding**: the sharding of an array is part of its type, so `torch2jax` reads
+the input shardings from the arrays and you only state how the outputs are
+sharded with `out_specs=`. A PyTorch function is opaque to JAX, so `torch2jax`
+**never implicitly all-gathers sharded inputs**, every collective in your
+program is one you asked for, and a missing or unsupported `out_specs` is an
+error rather than a silent slowdown.
 
-```python
-import torch
-import jax
-from jax import numpy as jnp
-import numpy as np
-from torch2jax import torch2jax
-
-def torch_fn(a, b):
-  return torch.nn.MSELoss()(a, b)
-
-shape = (6,)
-xt, yt = torch.randn(shape), torch.randn(shape)
-
-# depth=2 is the default, allowing up to 2nd-order differentiation
-jax_fn = torch2jax(torch_fn, xt, yt)
-
-# derivatives are taken using PyTorch autodiff
-g_fn = jax.grad(jax_fn, argnums=(0, 1))
-x, y = jnp.array(np.random.randn(*shape)), jnp.array(np.random.randn(*shape))
-
-print(g_fn(x, y))
-
-# JIT works too
-print(jax.jit(g_fn)(x, y))
-```
-
-Use `depth=0` to skip gradient definitions (forward-only):
-
-```python
-jax_fn = torch2jax(torch_fn, xt, yt, depth=0)  # no VJP, forward-only
-```
-
-> **Note**: `torch2jax_with_vjp` is deprecated. Use `torch2jax` (which has
-> `depth=2` by default) instead.
-
-Caveats:
-
-- `jax.hessian(f)` will not work since `torch2jax` uses forward differentiation, but
-  the same functionality can be achieved using `jax.jacobian(jax.jacobian(f))`
-- in line with JAX philosophy, PyTorch functions must be non-mutable,
-  [torch.func](https://pytorch.org/docs/master/func.html) has a good description
-  of how to convert e.g., PyTorch models, to non-mutable formulation
-
-# Multi-GPU support
-
-`torch2jax` follows JAX's explicit sharding model. A PyTorch function is opaque
-to JAX, so `torch2jax` **never implicitly all-gathers sharded inputs**:
-
-- **explicit mesh axes** (the `jax.make_mesh` default in recent JAX, otherwise pass
-  `axis_types=(AxisType.Explicit,) * n`) &mdash; pass `out_specs=`
-  and the torch function is called per-shard, inside a `jax.shard_map` that is
+- **explicit sharding** (recommended), with explicit mesh axes (the
+  `jax.make_mesh` default in recent JAX, otherwise pass
+  `axis_types=(AxisType.Explicit,) * n`) &mdash; pass `out_specs=` and the
+  torch function is called per-shard, inside a `jax.shard_map` that is
   manual only over the mesh axes the inputs are sharded along (`in_specs` are
   read from the input types). `output_shapes`, if given, are global and are split
   per-shard by `out_specs`. Without `out_specs`, sharded inputs raise an error;
   replicate them explicitly (`jax.sharding.reshard(x, P())`) to call the torch
   function on the full arrays instead. `out_specs` over Auto mesh axes raises an
   error, since XLA would silently all-gather the inputs.
-- **inside `jax.shard_map`** (manual axes) &mdash; call `torch2jax` as usual, the
-  torch function sees the local shards. Gradients type-check with the default
+- **inside `jax.shard_map`** (manual axes), if you already write per-shard code
+  &mdash; call `torch2jax` as usual, the torch function sees the local shards. Gradients type-check with the default
   `check_vma=True`, and cotangents of replicated inputs (e.g., parameters) are
   `psum`-ed automatically.
 
@@ -233,6 +197,57 @@ def fwd_fn_shard_map(x, params):
 arrays, it can work, but it is not recommend, and because of `torch2jax`'s
 implementation will likely be executed sequentially (and likely be slow).
 
+For more on explicit sharding, `lock=` and CUDA streams, see the
+[multi-device guide](https://rdyro.github.io/torch2jax/multi_device/).
+
+# Automatically defining gradients
+
+`torch2jax` defines reverse-mode gradients (VJP rules) by default (`depth=2`).
+The `depth` parameter controls how many times the function can be differentiated.
+
+```python
+import torch
+import jax
+from jax import numpy as jnp
+import numpy as np
+from torch2jax import torch2jax
+
+def torch_fn(a, b):
+  return torch.nn.MSELoss()(a, b)
+
+shape = (6,)
+xt, yt = torch.randn(shape), torch.randn(shape)
+
+# depth=2 is the default, allowing up to 2nd-order differentiation
+jax_fn = torch2jax(torch_fn, xt, yt)
+
+# derivatives are taken using PyTorch autodiff
+g_fn = jax.grad(jax_fn, argnums=(0, 1))
+x, y = jnp.array(np.random.randn(*shape)), jnp.array(np.random.randn(*shape))
+
+print(g_fn(x, y))
+
+# JIT works too
+print(jax.jit(g_fn)(x, y))
+```
+
+Use `depth=0` to skip gradient definitions (forward-only):
+
+```python
+jax_fn = torch2jax(torch_fn, xt, yt, depth=0)  # no VJP, forward-only
+```
+
+> **Note**: `torch2jax_with_vjp` is deprecated. Use `torch2jax` (which has
+> `depth=2` by default) instead.
+
+Caveats:
+
+- `jax.hessian(f)` will not work since `torch2jax` uses forward differentiation, but
+  the same functionality can be achieved using `jax.jacobian(jax.jacobian(f))`
+- in line with JAX philosophy, PyTorch functions must be non-mutable,
+  [torch.func](https://pytorch.org/docs/master/func.html) has a good description
+  of how to convert e.g., PyTorch models, to non-mutable formulation
+
 # Dealing with Changing Shapes
 
 Wrapped functions now **automatically cache** for different input shapes. When
@@ -278,7 +293,8 @@ the GPU.
 
 - compilation happens on module import and can take 1-2 minutes (it will be cached afterwards)
 - in the PyTorch function all arguments must be tensors, all outputs must be tensors
-- all arguments must be on the same device
+- all arguments of a single torch call must be on the same device (sharded
+  arrays are called per device, see [Multi-device (multi-GPU) support](#multi-device-multi-gpu-support))
 - an input/output shape (e.g. `output_shapes=` kw argument) representations (for
   flexibility in input and output structure) must be wrapped in `torch.Size` or
   `jax.ShapeDtypeStruct`
@@ -310,7 +326,6 @@ the GPU.
   - fixed `t2j` of CUDA tensors on multi-GPU hosts when another GPU is the current device
   - on multiple devices the torch function is called concurrently (one thread per device),
     stateful torch code, e.g., `torch.func.functional_call` on a shared module, must be guarded
-  - `jax.pmap` works (with recent JAX)
   - `lock=True` (or a lock object) guards torch calls, which run concurrently per device
 
 - version 0.8.0
@@ -425,6 +440,7 @@ the GPU.
 - [x] (feature) support mixed-precision arguments in inputs/outputs
 - [x] (feature) support defining VJP for the wrapped function (now on by default via `depth=2`)
 - [x] (tests) test how well device mapping works on multiple GPUs
+- [x] (feature) multi-device support: explicit sharding (`out_specs`) and `shard_map`, with gradients
 - [x] (tests) setup automatic tests for multiple versions of Python, PyTorch and JAX
 - [ ] (feature) look into supporting in-place functions (support for output without copy)
 - [ ] (feature) support TPU

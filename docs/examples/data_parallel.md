@@ -8,7 +8,7 @@ import torch.nn as nn
 import jax
 from jax import shard_map
 from jax.sharding import PartitionSpec as P, NamedSharding
-from torch2jax import torch2jax, tree_j2t, tree_t2j
+from torch2jax import torch2jax, tree_t2j
 
 
 def _setattr(mod, key, delim: str = "."):
@@ -41,7 +41,7 @@ if __name__ == "__main__":
     # jax init
     devices = jax.devices("cuda")
     mesh = jax.make_mesh((len(devices),), ("x",), devices=devices)
-    jax.sharding.set_mesh(mesh)
+    jax.set_mesh(mesh)
     params_sharding = NamedSharding(mesh, P())  # fully replicated
     batch_sharding = NamedSharding(mesh, P("x", None))  # sharded along batch
 
@@ -54,9 +54,14 @@ if __name__ == "__main__":
     params_spec = jax.tree.map(lambda _: params_sharding.spec, params)
 
     @jax.jit
-    @functools.partial(shard_map, out_specs=batch_sharding.spec)
+    @functools.partial(shard_map, in_specs=(batch_sharding.spec, params_spec), out_specs=batch_sharding.spec)
     def fwd_fn(x, params):
         return torch2jax(call_model_torch, x, params, output_shapes=x[:, :16])(x, params)
+
+    y = fwd_fn(x, params)
+
+    # OR directly on explicitly sharded arrays, the torch function is called per-shard
+    fwd_fn = jax.jit(torch2jax(call_model_torch, x, params, output_shapes=x[:, :16], out_specs=P("x", None)))
 
     y = fwd_fn(x, params)
 
@@ -67,5 +72,4 @@ if __name__ == "__main__":
     with jax.profiler.trace(str(path)):
        for _ in range(10):
            fwd_fn(x, params).block_until_ready()
-
 ```

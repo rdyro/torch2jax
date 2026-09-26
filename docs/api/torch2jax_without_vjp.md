@@ -1,6 +1,7 @@
-# `torch2jax_without_vjp` — forward-only with sharding support
+# `torch2jax_without_vjp` — forward-only
 
-Use this for multi-GPU sharding (`output_sharding_spec`) and keyword arguments (`example_kw`).
+Use this for keyword arguments (`example_kw`). For multi-device sharding (`out_specs`), `torch2jax` works with
+and without gradients, see the [multi-device guide](../multi_device.md).
 
 ## `torch2jax_without_vjp`
 

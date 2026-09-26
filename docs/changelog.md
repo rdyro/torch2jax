@@ -25,7 +25,6 @@
   - fixed `t2j` of CUDA tensors on multi-GPU hosts when another GPU is the current device
   - on multiple devices the torch function is called concurrently (one thread per device),
     stateful torch code, e.g., `torch.func.functional_call` on a shared module, must be guarded
-  - `jax.pmap` works (with recent JAX)
   - `lock=True` (or a lock object) guards torch calls, which run concurrently per device
 
 - version 0.8.0
