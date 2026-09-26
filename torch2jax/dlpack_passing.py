@@ -39,8 +39,8 @@ def _transfer(x: Array | Tensor, via: str = "dlpack", device: str = "cuda"):
             return torch.as_tensor(np.array(x), device=torch_device)
     else:
         if via == "dlpack":
-            # torch only exports a CUDA tensor via DLPack when its device is the current one, e.g., JAX initialization
-            # can leave another GPU current
+            _ = jax.devices()  # jax (0.7.2 - 0.11.2) lazy GPU backend init changes the current GPU, so init it first
+            # torch only exports a CUDA tensor via DLPack when its device is the current one
             with torch.cuda.device(x.device) if x.is_cuda else contextlib.nullcontext():
                 return jax.dlpack.from_dlpack(x.detach())
         else:
