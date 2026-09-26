@@ -25,7 +25,7 @@
       
       
       <link rel="icon" href="../img/favicon.svg">
-      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
     
     
       
@@ -33,7 +33,7 @@
       
     
     
-      <link rel="stylesheet" href="../assets/stylesheets/main.484c7ddc.min.css">
+      <link rel="stylesheet" href="../assets/stylesheets/main.ec1eaa64.min.css">
       
         
         <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
@@ -293,6 +293,33 @@
   
   
     <li class="md-nav__item">
+      <a href="../multi_device/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Multi-device
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../installation/" class="md-nav__link">
         
   
@@ -397,10 +424,10 @@
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6" >
         
           
-          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="">
+          <label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="">
             
   
   
@@ -418,8 +445,8 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
-          <label class="md-nav__title" for="__nav_5">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6">
             <span class="md-nav__icon md-icon"></span>
             
   
@@ -540,10 +567,10 @@
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_7" >
         
           
-          <label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="">
+          <label class="md-nav__link" for="__nav_7" id="__nav_7_label" tabindex="">
             
   
   
@@ -561,8 +588,8 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
-          <label class="md-nav__title" for="__nav_6">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_7_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_7">
             <span class="md-nav__icon md-icon"></span>
             
   
@@ -712,6 +739,36 @@
 
 
 <h1 id="changelog">Changelog</h1>
+<ul>
+<li>version 0.9.0<ul>
+<li><strong>breaking</strong>: sharding follows JAX's explicit sharding model: inputs sharded along
+  explicit mesh axes are never implicitly all-gathered, pass <code>out_specs=</code> to call the
+  torch function per-shard (inside <code>jax.shard_map</code>), <code>out_specs</code> also works with gradients
+  and is an error over Auto mesh axes (the <code>jax.make_mesh</code> default in older JAX);
+  <code>output_sharding_spec</code> is a deprecated alias, <code>custom_partitioning</code> (and the global
+  switch to the GSPMD partitioner) was removed</li>
+<li>gradients inside <code>jax.shard_map</code> work with <code>check_vma=True</code>, cotangents of replicated
+  inputs are <code>psum</code>-ed automatically</li>
+<li><strong>breaking</strong>: torch outputs are validated against <code>output_shapes</code>, a shape or dtype
+  mismatch is an error (previously silently broadcast/cast), unsupported dtypes raise
+  instead of aborting; added complex, uint16/32/64 and float8 dtypes</li>
+<li>fixed int64 inputs (e.g., class labels) when JAX x64 is disabled</li>
+<li>output shapes are inferred on the meta device (no compute) with a fallback to real tensors</li>
+<li>the torch computation is enqueued on XLA's CUDA stream instead of synchronizing the device,
+  ordered with torch's own stream by CUDA events (prior torch work, e.g., weight updates, is
+  visible to the torch function, and later torch work sees the state it modified)</li>
+<li>the C++ extension is rebuilt when its sources change</li>
+<li>with <code>out_specs</code>, a global <code>output_shapes</code> is split per-shard, the torch function is not
+  run to infer per-shard output shapes</li>
+<li>the <code>torch.autograd.grad</code> VJP fallback is used whenever <code>torch.func.vjp</code> fails (e.g.,
+  <code>.numpy()</code> in the function), the original error is raised if the fallback fails too</li>
+<li>fixed <code>t2j</code> of CUDA tensors on multi-GPU hosts when another GPU is the current device</li>
+<li>on multiple devices the torch function is called concurrently (one thread per device),
+  stateful torch code, e.g., <code>torch.func.functional_call</code> on a shared module, must be guarded</li>
+<li><code>lock=True</code> (or a lock object) guards torch calls, which run concurrently per device</li>
+</ul>
+</li>
+</ul>
 <ul>
 <li>version 0.8.0<ul>
 <li><strong>breaking</strong>: <code>torch2jax</code> now defines gradients by default (<code>depth=2</code>), unifying
@@ -926,7 +983,7 @@ function that works in JAX both normally and under JIT</li>
       <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.sections", "toc.integrate", "search.suggest", "search.highlight", "content.code.copy"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
     
     
-      <script src="../assets/javascripts/bundle.79ae519e.min.js"></script>
+      <script src="../assets/javascripts/bundle.d7400e89.min.js"></script>
       
     
   </body>
