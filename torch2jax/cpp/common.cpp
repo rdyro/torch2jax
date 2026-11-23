@@ -67,60 +67,67 @@ ffi::Error apply_torch_call(ffi::RemainingArgs args, ffi::RemainingRets rets, co
   // "C API Extension Support for Free Threading"). Declared first so it is
   // destroyed last, after all pybind11 objects below.
   py::gil_scoped_acquire py_guard;
+  // Catch C++/Python exceptions before the C XLA FFI boundary (unwinding into jaxlib's static libunwind segfaults).
+  try {
+    // 1. wrap the input and output buffers as Torch tensors
+    vector<torch::Tensor> ins, outs;
+    for (size_t i = 0; i < args.size(); i++)
+      if (auto err = wrap_buffer(args.get<ffi::AnyBuffer>(i).value(), device_type, ins); err.failure()) return err;
+    for (size_t i = 0; i < rets.size(); i++)
+      if (auto err = wrap_buffer(*rets.get<ffi::AnyBuffer>(i).value(), device_type, outs); err.failure()) return err;
 
-  // 1. wrap the input and output buffers as Torch tensors
-  vector<torch::Tensor> ins, outs;
-  for (size_t i = 0; i < args.size(); i++)
-    if (auto err = wrap_buffer(args.get<ffi::AnyBuffer>(i).value(), device_type, ins); err.failure()) return err;
-  for (size_t i = 0; i < rets.size(); i++)
-    if (auto err = wrap_buffer(*rets.get<ffi::AnyBuffer>(i).value(), device_type, outs); err.failure()) return err;
-
-  // 2. make XLA's stream the current torch stream (after torch's own stream)
+    // 2. make XLA's stream the current torch stream (after torch's own stream)
 #ifdef TORCH2JAX_WITH_CUDA
-  std::optional<c10::cuda::CUDAStream> torch_stream, xla_stream;
-  std::optional<c10::cuda::CUDAStreamGuard> stream_guard;
-  if (device_type == torch::kCUDA && (!ins.empty() || !outs.empty())) {
-    auto device_idx = (!ins.empty() ? ins[0] : outs[0]).device().index();
-    torch_stream = c10::cuda::getCurrentCUDAStream(device_idx);
-    xla_stream = c10::cuda::getStreamFromExternal(static_cast<cudaStream_t>(stream), device_idx);
-    at::cuda::CUDAEvent event;  // torch work queued before the call (e.g., a weight update) happens first
-    event.record(*torch_stream);
-    event.block(*xla_stream);
-    stream_guard.emplace(*xla_stream);
-  }
-#endif
-
-  // 3. call the identifiable Python torch function registered on the torch module
-  py::list inputs(ins.size());
-  for (size_t i = 0; i < ins.size(); i++) inputs[i] = py::reinterpret_steal<py::object>(THPVariable_Wrap(ins[i]));
-  py::tuple results = py::module_::import("torch").attr(("_torch2jax_fn_" + fn_id).c_str())(inputs);
-  if (results.size() != rets.size())
-    return ffi::Error::InvalidArgument("torch2jax: the torch function returned " + to_string(results.size()) +
-                                       " outputs, but " + to_string(rets.size()) + " were expected");
-
-  // 4. validate the output tensors and copy them to the output buffers
-  for (size_t i = 0; i < outs.size(); i++) {
-    PyObject* out = results[i].ptr();
-    if (!THPVariable_Check(out))
-      return ffi::Error::InvalidArgument("torch2jax: output " + to_string(i) + " of the torch function is not a tensor");
-    const torch::Tensor& src = THPVariable_Unpack(out);
-    if (src.sizes() != outs[i].sizes() || src.scalar_type() != outs[i].scalar_type()) {
-      std::ostringstream msg;
-      msg << "torch2jax: output " << i << " of the torch function is " << src.scalar_type() << src.sizes()
-          << ", but " << outs[i].scalar_type() << outs[i].sizes() << " was expected (check `output_shapes`)";
-      return ffi::Error::InvalidArgument(msg.str());
+    std::optional<c10::cuda::CUDAStream> torch_stream, xla_stream;
+    std::optional<c10::cuda::CUDAStreamGuard> stream_guard;
+    if (device_type == torch::kCUDA && (!ins.empty() || !outs.empty())) {
+      auto device_idx = (!ins.empty() ? ins[0] : outs[0]).device().index();
+      torch_stream = c10::cuda::getCurrentCUDAStream(device_idx);
+      xla_stream = c10::cuda::getStreamFromExternal(static_cast<cudaStream_t>(stream), device_idx);
+      at::cuda::CUDAEvent event;  // torch work queued before the call (e.g., a weight update) happens first
+      event.record(*torch_stream);
+      event.block(*xla_stream);
+      stream_guard.emplace(*xla_stream);
     }
-    outs[i].copy_(src);
-  }
-#ifdef TORCH2JAX_WITH_CUDA
-  // 5. order torch's own stream after XLA's stream
-  if (torch_stream) {  // torch work queued after the call sees the state the torch fn modified (e.g., buffers)
-    at::cuda::CUDAEvent event;
-    event.record(*xla_stream);
-    event.block(*torch_stream);
-  }
 #endif
-  return ffi::Error::Success();
+
+    // 3. call the identifiable Python torch function registered on the torch module
+    py::list inputs(ins.size());
+    for (size_t i = 0; i < ins.size(); i++) inputs[i] = py::reinterpret_steal<py::object>(THPVariable_Wrap(ins[i]));
+    py::tuple results = py::module_::import("torch").attr(("_torch2jax_fn_" + fn_id).c_str())(inputs);
+    if (results.size() != rets.size())
+      return ffi::Error::InvalidArgument("torch2jax: the torch function returned " + to_string(results.size()) +
+                                         " outputs, but " + to_string(rets.size()) + " were expected");
+
+    // 4. validate the output tensors and copy them to the output buffers
+    for (size_t i = 0; i < outs.size(); i++) {
+      PyObject* out = results[i].ptr();
+      if (!THPVariable_Check(out))
+        return ffi::Error::InvalidArgument("torch2jax: output " + to_string(i) +
+                                           " of the torch function is not a tensor");
+      const torch::Tensor& src = THPVariable_Unpack(out);
+      if (src.sizes() != outs[i].sizes() || src.scalar_type() != outs[i].scalar_type()) {
+        std::ostringstream msg;
+        msg << "torch2jax: output " << i << " of the torch function is " << src.scalar_type() << src.sizes()
+            << ", but " << outs[i].scalar_type() << outs[i].sizes() << " was expected (check `output_shapes`)";
+        return ffi::Error::InvalidArgument(msg.str());
+      }
+      outs[i].copy_(src);
+    }
+#ifdef TORCH2JAX_WITH_CUDA
+    // 5. order torch's own stream after XLA's stream
+    if (torch_stream) {  // torch work queued after the call sees the state the torch fn modified (e.g., buffers)
+      at::cuda::CUDAEvent event;
+      event.record(*xla_stream);
+      event.block(*torch_stream);
+    }
+#endif
+    return ffi::Error::Success();
+  } catch (const std::exception& e) {
+    return ffi::Error::Internal(e.what());
+  } catch (...) {
+    return ffi::Error::Internal("torch2jax: unknown C++ exception in torch call");
+  }
 }
 
 #ifndef TORCH2JAX_WITH_CUDA
